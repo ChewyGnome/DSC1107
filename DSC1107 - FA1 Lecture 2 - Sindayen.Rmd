@@ -1,0 +1,454 @@
+---
+title: "Formative Assessment 1"
+author: "Sindayen, Lorenzo Danilo V."
+subtitle: "DSC1111 Data Mining and Wrangling"
+date: "2026-06-19"
+output:
+  html_document:
+    
+    df_print: paged
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(knitr)
+library(ggcorrplot)
+library(dplyr)
+
+
+knitr::opts_chunk$set( 
+  fig.width = 8, 
+  fig.height = 5, 
+  echo = TRUE, 
+  warning = FALSE, 
+  message = FALSE 
+)
+```
+
+
+---
+
+\begin{center}
+\textbf{Lecture 2 – Data Visualization}
+\end{center}
+
+---
+
+
+# Introduction
+
+Data Visualization is one of the key components of Exploratory Data Analysis (EDA). In the process of building models or performing different forms of analysis, understanding the structure of a dataset and some noticeable comes first and foremost. Visualizations help transform raw data into information that is easier to interpret and communicate. For this activity, the diamonds dataset from the ggplot2 package is used to demonstrate several visualization techniques discussed in Lecture 2. The goal is to explore how variables are distributed and how they relate to one another through different types of plots.
+
+# Dataset Overview
+
+The diamonds dataset contains information about 53,940 diamonds, including their carat weight, cut, color, clarity, dimensions, and price.
+
+```{r}
+data(diamonds)
+```
+
+```{r}
+head(diamonds)
+```
+
+```{r}
+glimpse(diamonds)
+```
+
+- Notes:
+The dataset contains both categorical and continuous variables. Variables such as cut, color, and clarity represent categories, while variables such as carat, price, x, y, and z contain numerical measurements. This combination of variable types makes the dataset suitable for exploring a variety of visualization techniques.
+
+# Exploratory Data Analysis
+
+The purpose of Exploratory Data Analysis (EDA) is to become familiarize oneself with the dataset, identify patterns and detect unusual observations to gain insights that may guide future analyses. Visualization also has a crucial role in Exploratory Data Analysis (EDA) as it allows important characteristics of the data to be observed quickly and effectively.   
+
+# Variation
+
+Variation refers to how values differ across observations. Understanding variation helps reveal which values occur frequently and whether unusual observations exist.
+  
+## Discrete Variables: Distribution of Diamond Cuts
+
+```{r}
+ggplot(diamonds) +
+  geom_count(
+    aes(
+      x = cut, 
+      y = clarity
+    )
+  ) +
+  theme_minimal()
+```
+
+Notes: 
+This bar chart is used to examine the distribution of the categorical variable cut. The visualization shows that the Ideal cut category contains the largest number of diamonds, while the Fair category contains the fewest. This provides a quick overview of how observations are distributed among the different cut classifications.
+
+## Continuous Variables: Distribution of Carat Weight
+
+```{r}
+ggplot(diamonds) +
+  geom_histogram(
+    aes(x = carat),
+    fill = "darkgreen",
+    color = "white"
+  ) +
+  labs(
+    title = "Distribution of Carat Weight",
+    x = "Carat",
+    y = "Frequency"
+  ) +
+  theme_minimal()
+```
+
+Notes: 
+This histogram visualizes the distribution of carat values within the dataset. Most observations are concentrated at smaller carat values, while larger diamonds occur less frequently. The distribution is positively skewed, indicating that high-carat diamonds are relatively uncommon
+
+## Zooming In on the Distribution
+
+```{r}
+ggplot(diamonds) +
+  geom_histogram(
+    aes(x = carat),
+    fill = "darkgreen",
+    color = "white"
+  ) +
+  coord_cartesian(xlim = c(0, 3)) +
+  theme_minimal()
+```
+
+Notes: 
+Restricting the x-axis allows the area containing most observations to be examined more closely. The visualization shows that the majority of diamonds fall below three carats, making it easier to observe the distribution without the influence of extreme values.
+
+## Adjusting Bin Width
+
+```{r}
+ggplot(diamonds) +
+  geom_histogram(
+    aes(x = carat),
+    binwidth = 0.01,
+    fill = "darkgreen",
+    color = "white"
+  ) +
+  coord_cartesian(xlim = c(0, 3)) +
+  theme_minimal()
+```
+
+Notes:
+A smaller bin width provides a more detailed view of the distribution. This allows clusters and concentrations of specific carat values to become more visible, revealing patterns that may be hidden when larger bins are used.
+
+# Covariation
+
+Covariation focuses on understanding whether changes in one variable are associated with changes in another.
+
+## Discrete vs Discrete: Cut and Clarity
+
+```{r}
+ggplot(diamonds) +
+  geom_count(
+    aes(
+      x = cut,
+      y = clarity
+    )
+  ) +
+  theme_minimal()
+```
+
+## Continuous vs Continuous: Diamond Length and Width
+
+```{r}
+ggplot(diamonds) +
+  geom_point(
+    aes(
+      x = x,
+      y = y
+    ),
+    alpha = 0.3
+  ) +
+  theme_minimal()
+```
+
+## Adding a reference line
+
+```{r}
+ggplot(diamonds) +
+  geom_point(
+    aes(
+      x = x,
+      y = y
+    ),
+    alpha = 0.3
+  ) +
+  geom_abline(
+    slope = 1,
+    intercept = 0,
+    color = "red"
+  ) +
+  coord_cartesian(
+    xlim = c(3.5, 10),
+    ylim = c(3.5, 10)
+  ) +
+  theme_minimal()
+```
+
+Notes: 
+The reference line represents a perfect one-to-one relationship between the two measurements. Most observations lie close to the line, indicating that diamond length and width tend to increase together and maintain similar proportions.
+
+## One-to-One Relationships: Average Price by Carat
+
+```{r}
+avg_price_by_carat <- diamonds %>%
+  mutate(carat = round(carat, 1)) %>%
+  group_by(carat) %>%
+  summarise(avg_price = mean(price))
+
+ggplot(avg_price_by_carat) +
+  geom_line(
+    aes(
+      x = carat,
+      y = avg_price
+    )
+  ) +
+  theme_minimal()
+```
+
+Notes: 
+The line plot illustrates how average diamond price changes as carat weight increases. The overall upward trend indicates that larger diamonds generally command higher prices, highlighting the strong relationship between size and value.
+
+## Continuous vs Discrete: Price by Cut
+
+```{r}
+ggplot(diamonds) +
+  geom_boxplot(
+    aes(
+      x = cut,
+      y = price
+    ),
+    fill = "orange"
+  ) +
+  theme_minimal()
+```
+
+Notes: 
+This box plot compares the distribution of prices across the different cut categories. Differences in median values, spread, and outliers suggest that pricing patterns vary between the cut classifications.
+
+## Correlation Matrix
+
+Notes:
+The correlation matrix summarizes the strength of relationships among numerical variables. Strong positive correlations can be observed between carat, price, and the physical dimensions of the diamonds, indicating that larger diamonds generally have higher prices.
+
+
+# Additional Visualization Tools
+
+## Logarithmic Transformations
+
+```{r}
+ggplot(diamonds) +
+  geom_point(
+    aes(
+      x = carat,
+      y = price
+    ),
+    alpha = 0.3
+  ) +
+  scale_x_log10() +
+  scale_y_log10() +
+  theme_minimal()
+```
+
+Notes:
+Logarithmic transformations are used to reduce the impact of extreme values and make patterns easier to observe. Applying logarithmic scales reveals the relationship between carat and price more clearly across a wide range of values.
+
+## Multiple Geoms
+
+```{r}
+ggplot(
+  avg_price_by_carat,
+  aes(
+    x = carat,
+    y = avg_price
+  )
+) +
+  geom_line() +
+  geom_point() +
+  theme_minimal()
+```
+
+Notes:
+Combining multiple geometries allows different aspects of the data to be displayed simultaneously. The line emphasizes the overall trend, while the points highlight the individual observations used to construct the trend.
+
+## Global Aesthetic Mapping
+
+```{r}
+ggplot(
+  avg_price_by_carat,
+  aes(
+    x = carat,
+    y = avg_price
+  )
+) +
+  geom_line() +
+  geom_point() +
+  theme_minimal()
+```
+
+Notes:
+The aesthetic mapping is defined once within ggplot(), allowing all geoms to share the same variables. This approach simplifies code and ensures consistency across multiple layers.
+
+## Multiple Aesthetics
+
+```{r}
+ggplot(diamonds) +
+  geom_point(
+    aes(
+      x = carat,
+      y = price,
+      color = cut
+    ),
+    alpha = 0.4
+  ) +
+  theme_minimal()
+```
+
+Notes:
+Color is used to represent an additional variable while preserving the relationship between carat and price. This enables multiple dimensions of information to be displayed within a single visualization.
+
+## Faceting with facet_wrap()
+
+```{r}
+ggplot(diamonds) +
+  geom_point(
+    aes(
+      x = carat,
+      y = price
+    ),
+    alpha = 0.3
+  ) +
+  facet_wrap(~cut) +
+  theme_minimal()
+```
+
+Notes:
+Faceting separates observations into individual panels based on cut category. This makes it easier to compare relationships within each group without overlap from other categories.
+
+## Faceting with facet_grid()
+
+```{r}
+ggplot(diamonds) +
+  geom_point(
+    aes(
+      x = carat,
+      y = price
+    ),
+    alpha = 0.3
+  ) +
+  facet_grid(clarity ~ cut)
+```
+
+Notes: 
+The grid layout allows comparisons across both cut and clarity simultaneously. By separating the data into multiple panels, patterns can be examined across combinations of two categorical variables.
+
+
+# Plot Customization
+
+One of the strengths of ggplot2 is the ability to customize nearly every component of a visualization. Titles, axis labels, colors, themes, and legends can be adjusted to improve readability and presentation quality.
+
+```{r}
+ggplot(diamonds) +
+  geom_bar(aes(x = cut),
+           fill = "steelblue") +
+  labs(
+    title = "Customized Distribution of Diamond Cuts",
+    x = "Diamond Cut",
+    y = "Number of Diamonds"
+  ) +
+  theme_minimal()
+```
+
+# Conclusion
+
+This lecture examines the variation within variables, relationships between variables, and methods for enhancing graphical representations.  Through the different kinds of plotting, the dataset was explored from multiple perspectives. These techniques provide a strong foundation for exploratory data analysis and support the discovery of meaningful patterns within data.  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
