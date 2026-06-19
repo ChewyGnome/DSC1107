@@ -1,0 +1,384 @@
+---
+title: "Formative Assessment 1"
+author: "Sindayen, Lorenzo Danilo V."
+subtitle: "DSC1111 Data Mining and Wrangling"
+date: "2026-06-19"
+output:
+  pdf_document: default
+  html_document:
+    
+    df_print: paged
+---
+
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(knitr)
+
+knitr::opts_chunk$set(
+  fig.width = 8,
+  fig.height = 5,
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE
+)
+```
+
+---
+
+\begin{center}
+\textbf{Lecture 4 – Data Wrangling}
+\end{center}
+
+---
+
+# Introduction
+
+Similar to the prior lectures, data wrangling is also another process of cleaning, restructuring, and preparing data for analysis. In most practicums in the real-world, datasets are often initially unoptimized and inconsistent with following formatting. Therefore to amend this, the data must be transformed into a tidy structure before any performing an analysis. In this activity, the examples from Lecture 4 are used to demonstrate how non-tidy datasets can be transformed into tidy datasets using functions from the tidyr and dplyr packages. Topics include pivoting data, joining tables, separating variables, and handling missing values.  
+
+
+# Understanding Tidy Data
+
+The tidy data framework follows three fundamental rules:
+
+1. Each variable must have its own column.
+2. Each observation must have its own row.
+3. Each value must have its own cell.
+
+## Sample Tables
+
+```{r}
+table1 <- tibble(
+  country = c("Afghanistan","Afghanistan","Brazil","Brazil","China","China"),
+  year = c(1999,2000,1999,2000,1999,2000),
+  cases = c(745,2666,37737,80488,212258,213766),
+  population = c(19987071,20595360,172006362,174504898,1272915272,1280428583)
+)
+
+table1
+```
+
+Notes: 
+This table represents a tidy dataset because each variable occupies its own column and each observation occupies its own row. This format is the preferred structure for data analysis within the tidyverse.
+
+# Pivoting Data
+
+## Pivot Longer Example 1
+
+```{r}
+table4a <- tibble(
+  country = c("Afghanistan","Brazil","China"),
+  `1999` = c(745,37737,212258),
+  `2000` = c(2666,80488,213766)
+)
+
+table4a %>%
+  pivot_longer(
+    cols = c(`1999`,`2000`),
+    names_to = "year",
+    values_to = "cases"
+  )
+```
+
+Notes: 
+The years 1999 and 2000 were originally stored as column names. After applying pivot_longer(), the year values become observations in a new year column, creating a more organized and tidy structure.
+
+## Pivot Longer Example 2
+
+```{r}
+table4b <- tibble(
+  country = c("Afghanistan","Brazil","China"),
+  `1999` = c(19987071,172006362,1272915272),
+  `2000` = c(20595360,174504898,1280428583)
+)
+
+table4b %>%
+  pivot_longer(
+    cols = c(`1999`,`2000`),
+    names_to = "year",
+    values_to = "population"
+  )
+```
+
+Notes:
+The same transformation is applied to population data. The resulting dataset stores years as observations rather than column names, making future analysis easier.
+
+
+## Pivot Wider
+
+```{r}
+table2 <- tibble(
+  country = c(
+    "Afghanistan","Afghanistan",
+    "Afghanistan","Afghanistan",
+    "Brazil","Brazil",
+    "Brazil","Brazil",
+    "China","China",
+    "China","China"
+  ),
+  year = c(
+    1999,1999,
+    2000,2000,
+    1999,1999,
+    2000,2000,
+    1999,1999,
+    2000,2000
+  ),
+  type = c(
+    "cases","population",
+    "cases","population",
+    "cases","population",
+    "cases","population",
+    "cases","population",
+    "cases","population"
+  ),
+  count = c(
+    745,19987071,
+    2666,20595360,
+    37737,172006362,
+    80488,174504898,
+    212258,1272915272,
+    213766,1280428583
+  )
+)
+
+table2 %>%
+  pivot_wider(
+    names_from = type,
+    values_from = count
+  )
+```
+
+Notes:
+The variable names stored inside the type column become separate columns. This transformation reconstructs a tidy dataset where cases and population each have their own variable.
+
+# Joining Tables
+
+Multiple datasets often need to be combined to support analysis.
+
+## Creating Tidy Tables
+
+```{r}
+tidy4a <- table4a %>%
+  pivot_longer(
+    c(`1999`,`2000`),
+    names_to = "year",
+    values_to = "cases"
+  )
+
+tidy4b <- table4b %>%
+  pivot_longer(
+    c(`1999`,`2000`),
+    names_to = "year",
+    values_to = "population"
+  )
+```
+
+## Using left joins
+
+```{r}
+left_join(
+  x = tidy4a,
+  y = tidy4b,
+  by = c("country","year")
+)
+```
+
+Notes:
+The join combines the cases dataset with the population dataset using country and year as matching keys. The resulting dataset contains information from both tables in a single structure.
+
+
+## Separating Variables
+
+Used when sometimes multiple variables are stored within a single column.
+
+```{r}
+table3 <- tibble(
+  country = c("Afghanistan","Afghanistan","Brazil","Brazil","China","China"),
+  year = c(1999,2000,1999,2000,1999,2000),
+  rate = c(
+    "745/19987071",
+    "2666/20595360",
+    "37737/172006362",
+    "80488/174504898",
+    "212258/1272915272",
+    "213766/1280428583"
+  )
+)
+
+table3 %>%
+  separate(
+    rate,
+    into = c("cases","population")
+  )
+```
+
+Notes: 
+The rate column actually contains two variables: cases and population. The separate() function splits these values into their own columns, producing a tidier dataset.
+
+## Using a Specific Separator
+
+```{r}
+table3 %>%
+  separate(
+    rate,
+    into = c("cases","population"),
+    sep = "/"
+  )
+```
+
+Notes:
+The forward slash is explicitly specified as the separator. This gives greater control over how the values are split into multiple variables.
+
+## Converting Data Types
+
+```{r}
+table3 %>%
+  separate(
+    rate,
+    into = c("cases","population"),
+    convert = TRUE
+  )
+```
+
+Interpretation:
+The convert = TRUE argument automatically converts character values into appropriate numeric data types, making the resulting variables more useful for future analysis.
+
+
+# Missing Values
+
+Missing values frequently occur in real-world datasets and should be handled carefully thus the importance of filtering.
+
+```{r}
+stocks <- tibble(
+  year = c(2015,2015,2015,2015,2016,2016,2016),
+  qtr = c(1,2,3,4,2,3,4),
+  return = c(1.88,0.59,0.35,NA,0.92,0.17,2.66)
+)
+
+stocks
+```
+
+Notes: 
+The NA value indicates that information is missing for the fourth quarter of 2015. Missing values can affect analyses and should be identified before modeling or summarization.
+
+## Missing Values After Pivoting
+
+```{r}
+stocks %>%
+  pivot_wider(
+    names_from = year,
+    values_from = return
+  )
+```
+
+Notes: 
+Pivoting can reveal implicit missing values and convert them into explicit missing values represented by NA. This makes missing information easier to identify and manage.
+
+## Removing Missing Values
+
+```{r}
+stocks %>%
+  na.omit()
+```
+
+Notes: 
+The na.omit() function removes observations containing missing values. This is one of the simplest approaches to handling missing data, although analysts should first consider why the values are missing.
+
+# Additional Visualization
+
+```{r}
+table1 %>%
+  ggplot(
+    aes(
+      x = factor(year),
+      y = cases,
+      fill = country
+    )
+  ) +
+  geom_col(position = "dodge") +
+  labs(
+    title = "Reported Cases by Country and Year",
+    x = "Year",
+    y = "Cases"
+  ) +
+  theme_minimal()
+```
+
+Notes:
+This visualization compares reported cases across countries and years. The chart demonstrates how tidy data can be easily visualized once variables are organized into a consistent structure.
+
+
+
+# Conclusion
+
+Data wrangling is a critical stage in the data mining workflow because the quality of analysis depends heavily on the quality and structure of the data being used. Throughout this activity, several data wrangling techniques were explored, including transforming datasets between wide and long formats, combining information from multiple tables, separating variables into meaningful components, and handling missing values. These techniques demonstrated how raw or untidy data can be reorganized into a structured format that is easier to analyze and visualize.
+
+Throughout this activity the value of tidy principles were also highlighted, with each observed variable being stored in a consistent manner. By applying certain functions from the idyr and dplyr packages, the otherwise complex data structures were transformed into a simpler dataset that could easily be interpreted. 
+
+Overall, the concepts presented in this lecture provide a strong foundation for preparing real-world datasets for analysis. This means that the learning curve for this activity is quite steep and that there is a lot of room for improvement in the usage of the different functions for the different data mining processes. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
