@@ -1,0 +1,382 @@
+---
+title: "Formative Assessment 1"
+author: "Sindayen, Lorenzo Danilo V."
+subtitle: "DSC1111 Data Mining and Wrangling"
+date: "2026-06-19"
+output:
+  pdf_document: default
+  html_document:
+    
+    df_print: paged
+---
+
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(knitr)
+
+knitr::opts_chunk$set(
+  fig.width = 8,
+  fig.height = 5,
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE
+)
+```
+
+---
+
+\begin{center}
+\textbf{Lecture 3 – Data Transformation}
+\end{center}
+
+---
+
+# Introduction
+
+Similar to data visualization, data transformation is also another crucial component in the data mining process. In most cases before data could be analyzed, plotted or modeled, it often needs to be filtered, organized, summarized, or modified. The dpylr package provides a collection of functions that simplify these tasks and allow data to be manipulated efficiently. In this activity, the diamonds dataset is used to demonstrate the major data transformation techniques discussed in Lecture 3. These techniques include selecting variables, filtering observations, sorting data, creating new variables, summarizing information, and performing grouped operations.
+
+
+# Dataset Overview
+
+The diamonds dataset contains information about 53,940 diamonds, including their size, quality characteristics, dimensions, and price.
+
+```{r}
+data(diamonds)
+```
+
+```{r}
+head(diamonds)
+```
+
+```{r}
+glimpse(diamonds)
+```
+
+Notes: 
+Similar to lecture 2, lecture 3 also employs the diamond dataset due to this it contains both categorical and numerical variables. Quality-related variables such as cut, color, and clarity describe the characteristics of each diamond, while variables such as carat and price provide numerical measurements. Together these variables will be used throughout the lecture to demonstrate different data transformation techniques.
+
+
+# Data Transformation with dplyr
+
+The dplyr package provides a set of functions designed to manipulate and transform data. These functions allow users to focus on specific variables, filter observations, create new variables, and summarize information more efficiently.
+
+## Selecting Variables
+
+```{r}
+select(
+  diamonds,
+  carat,
+  cut,
+  price
+)
+```
+
+Notes:
+This transformation extracts only the carat, cut, and price variables from the dataset. Selecting relevant variables reduces complexity and allows the analysis to focus only on information that is important for a specific task.
+
+
+# Filtering Observations
+
+The filter() function is used to keep only observations that satisfy specified conditions.
+
+## Filtering High-Priced Diamonds
+
+```{r}
+filter(
+  diamonds,
+  price > 10000
+)
+```
+
+Notes: 
+This transformation returns only diamonds priced above 10,000. Filtering observations helps focus on a specific subset of the data and is useful when investigating particular groups or conditions.
+
+## Filtering Ideal Cut Diamonds
+
+```{r}
+filter(
+  diamonds,
+  cut == "Ideal"
+)
+```
+
+Note: 
+This output contains only diamonds classified as Ideal cut. Filtering categorical variables allows specific groups to be examined independently from the rest of the dataset.
+
+
+# Sorting Data
+
+The arrange() function is used to organize observations in ascending or descending order.
+
+## Sorting by Price
+
+```{r}
+arrange(
+  diamonds,
+  price
+)
+```
+
+Notes:
+The observations are arranged from the lowest price to the highest price. Sorting data helps identify extreme values and makes patterns easier to observe.
+
+## Sorting by Descending Price
+
+```{r}
+arrange(
+  diamonds,
+  desc(price)
+)
+```
+
+Notes:
+The observations are arranged from the highest price to the lowest price. This allows the most expensive diamonds in the dataset to be identified immediately.
+
+
+# Creating New Variables
+
+The mutate() function creates new variables based on existing variables.
+
+## Price Per Carat
+
+```{r}
+mutate(
+  diamonds,
+  price_per_carat = price / carat
+)
+```
+
+Notes: 
+A new variable called price_per_carat is created by dividing the price by the carat weight. This transformation provides a standardized measure that allows diamonds of different sizes to be compared more fairly.
+
+## Creating a Logical Variable
+
+```{r}
+mutate(
+  diamonds,
+  fancy_diamond = price / carat > 10000
+)
+```
+
+Notes:
+This transformation creates a logical variable that classifies diamonds as either TRUE or FALSE depending on whether their price per carat exceeds 10,000. Logical variables are useful for identifying observations that meet a specific condition.
+
+## Using if_else()
+
+```{r}
+mutate(
+  diamonds,
+  good_value =
+    if_else(
+      condition = carat > 2,
+      true = price < 5000,
+      false = price < 1000
+    )
+)
+```
+
+## Using case_when()
+
+```{r}
+mutate(
+  diamonds,
+  value =
+    case_when(
+      carat > 2 & price < 5000 ~ "good",
+      carat > 1 & price < 2500 ~ "ok",
+      TRUE ~ "bad"
+    )
+)
+```
+
+
+# Summarising Data
+
+The summarise() function reduces many observations into a smaller set of summary statistics.
+
+## Counting Fancy Diamonds
+
+```{r}
+summarise(
+  diamonds,
+  num_fancy_diamonds =
+    sum(price / carat > 10000)
+)
+```
+
+Notes:
+This summary calculates the number of diamonds whose price per carat exceeds 10,000. Summaries allow large datasets to be condensed into meaningful metrics.
+
+## Multiple Summary Statistics
+
+```{r}
+summarise(
+  diamonds,
+  num_fancy_diamonds =
+    sum(price / carat > 10000),
+  mean_diamond_price =
+    mean(price)
+)
+```
+
+Notes: 
+Multiple summary statistics can be calculated simultaneously. This provides a broader overview of the dataset while reducing the amount of information that must be examined directly.
+
+
+# Multi-Step Transformations Using Pipes
+
+The pipe operator %>% allows multiple operations to be connected into a single workflow.
+
+```{r}
+diamonds %>%
+  filter(cut == "Premium") %>%
+  mutate(price_per_carat = price / carat) %>%
+  arrange(desc(price_per_carat))
+```
+
+Notes:
+This workflow filters Premium diamonds, creates a new price-per-carat variable, and then sorts the results from highest to lowest. Pipes improve readability by presenting transformations in the order they are performed.
+
+# Pipes with Visualization
+
+```{r}
+diamonds %>%
+  filter(cut == "Premium") %>%
+  mutate(price_per_carat = price / carat) %>%
+  ggplot() +
+  geom_histogram(
+    aes(x = price_per_carat),
+    fill = "steelblue",
+    color = "white"
+  )
+```
+
+Notes:
+This histogram displays the distribution of price per carat for Premium diamonds. Combining transformation functions with visualization makes it possible to explore specific subsets of data efficiently.
+
+# Grouped Operations
+
+The group_by() function performs calculations separately for different groups.
+
+## Maximum Price by Cut
+
+```{r}
+diamonds %>%
+  group_by(cut) %>%
+  summarise(
+    max_price = max(price)
+  )
+```
+
+Notes: 
+This output identifies the highest-priced diamond within each cut category.
+
+## Multiple Grouping Variables
+
+```{r}
+diamonds %>%
+  group_by(cut, clarity) %>%
+  summarise(
+    max_price = max(price)
+  )
+```
+
+Notes: 
+The summary is now calculated separately for each combination of cut and clarity. ]
+## Removing Group
+
+```{r}
+diamonds %>%
+  group_by(cut, clarity) %>%
+  summarise(
+    max_price = max(price)
+  ) %>%
+  ungroup()
+```
+
+Notes: 
+The ungroup() function removes grouping information after calculations have been completed.
+
+
+# Counting Observations
+
+The count() function provides a quick way to determine the number of observations in each category.
+
+```{r}
+count(
+  diamonds,
+  cut
+)
+```
+
+Notes:
+This output shows the number of diamonds belonging to each cut category. Counting observations is one of the most common forms of data summarization.
+
+# Storing Transformed Data
+
+```{r}
+max_prices <- diamonds %>%
+  group_by(cut) %>%
+  summarise(
+    max_price = max(price)
+  )
+
+max_prices
+```
+
+Notes:
+The summarized results are stored in a new object called max_prices. This allows them to be reused without repeating the same calculations.
+
+# Additional Visualization
+
+```{r}
+diamonds %>%
+  group_by(cut) %>%
+  summarise(
+    avg_price = mean(price)
+  ) %>%
+  ggplot(
+    aes(
+      x = cut,
+      y = avg_price
+    )
+  ) +
+  geom_col(fill = "darkgreen") +
+  labs(
+    title = "Average Diamond Price by Cut",
+    x = "Cut",
+    y = "Average Price"
+  ) +
+  theme_minimal()
+```
+
+Notes: 
+This visualization combines grouping, summarization, and plotting in a single workflow. The chart compares average diamond prices across cut categories and demonstrates how transformed data can be presented visually for easier interpretation.
+
+
+# Conclusion
+
+In this activity several major data transformation techniques were in Lecture 3 were demonstrated using the diamonds dataset. Functions such as select(), filter(), arrange(), mutate(), summarise(), group_by(), and %>% were used to filter, organize, and summarize data. These transformations together helps with preparing datasets for further analysis for future topics that could be reviewed in the future. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
