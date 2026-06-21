@@ -1,0 +1,252 @@
+---
+title: "Lab Formative Assessment 1"
+author: "Sindayen, Lorenzo Danilo V."
+subtitle: "DSC1111 Data Mining and Wrangling"
+date: "2026-06-21"
+output:
+  html_document:
+    
+    df_print: paged
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(nycflights13)
+library(knitr)
+
+knitr::opts_chunk$set(
+  fig.width = 8,
+  fig.height = 5,
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE
+)
+```
+
+---
+
+\begin{center}
+\textbf{NYC Flights 2013 Data Analysis}
+\end{center}
+
+---
+
+
+# Introduction
+
+For most cases in real-world datasets, a lot of them often contain missing values, inconsistencies, and variables of different types that must be examined prior to analysis. In this activity, the flight dataset from the nycflights13 package will be tackled to analyze flight delays and travel characteristics for flights departing from New York City airports during 2013. The objective of this study is to identify potential patterns associated with flight delays to gain insights from the data using data wrangling and visualization techniques available in the tidyverse ecosystem.
+
+
+# Part A. Data Understanding and Preparation
+
+## A1 Dataset Overview
+
+```{r}
+str(flights)
+```
+
+```{r}
+dim(flights)
+```
+
+```{r}
+glimpse(flights)
+```
+
+```{r}
+nrow(flights) 
+ncol(flights)
+```
+
+Notes:
+The flights dataset contains information about flights departing from New York City airports during 2013. The dataset includes variables related to departure times, arrival times, delays, flight distance, airline carrier, destination, and other operational information. It can be inferred from this that the dataset contains both numeric and categorical variables. Understanding these variable types is important because different analytical techniques are applied depending on the nature of the data.
+
+## A2 Data Cleaning
+
+## Missing Values in Departure Delay
+
+```{r}
+sum(is.na(flights$dep_delay))
+```
+
+## Missing Values in Arrival Delay
+
+```{r}
+sum(is.na(flights$arr_delay))
+```
+
+## Creating a Cleaned Dataset
+
+```{r}
+flights_clean <- flights %>%
+  filter(
+    !is.na(dep_delay),
+    !is.na(arr_delay)
+  )
+
+dim(flights_clean)
+```
+
+Notes:
+Missing values were identified in both departure delay and arrival delay variables. Missing observations can affect statistical calculations and visualizations because many analytical functions cannot properly process incomplete records.To address this issue, rows containing missing values in either delay variable were removed using the filter() function. The resulting dataset provides a cleaner and more reliable foundation for subsequent analysis.
+
+
+# Part B. Data Visualization
+
+## B1 Distribution of Departure Delays
+
+```{r}
+ggplot(
+  flights_clean,
+  aes(x = dep_delay)
+) +
+  geom_histogram(
+    binwidth = 10
+  ) +
+  labs(
+    title = "Distribution of Departure Delays",
+    x = "Departure Delay (Minutes)",
+    y = "Frequency"
+  ) +
+  theme_minimal()
+```
+
+Notes:
+The histogram illustrates the distribution of departure delays across all flights in the cleaned dataset. Most observations are concentrated near zero minutes, indicating that many flights depart on time or experience only minor delays.
+
+## B2 Flight Delays by Airline
+
+```{r}
+ggplot(
+  flights_clean,
+  aes(
+    x = carrier,
+    y = dep_delay
+  )
+) +
+  geom_boxplot() +
+  labs(
+    title = "Departure Delay by Airline",
+    x = "Airline Carrier",
+    y = "Departure Delay (Minutes)"
+  ) +
+  theme_minimal()
+```
+
+Notes:
+The boxplot compares departure delays across different airline carriers, airlines displaying larger interquartile ranges and longer whiskers generally exhibit greater variability in departure delays. The presence of numerous outliers suggest that certain carriers occasionally experience exceptionally large delays compared to their typical operations.
+
+## B3 Relationship Between Distance and Arrival Delay
+
+```{r}
+ggplot(
+  flights_clean,
+  aes(
+    x = distance,
+    y = arr_delay
+  )
+) +
+  geom_point(alpha = 0.2) +
+  labs(
+    title = "Distance versus Arrival Delay",
+    x = "Distance (Miles)",
+    y = "Arrival Delay (Minutes)"
+  ) +
+  theme_minimal()
+```
+
+Notes:
+The scatter plot examines the relationship between flight distance and arrival delay. In this plot transparency is applied through the alpha parameter to reduce overplotting and improve the visibility of dense regions within the graph. The visualization shows that arrival delays occur across both short and long-distance flights. While some longer flights experience substantial delays, the overall pattern does not suggest a strong linear relationship between distance and arrival delay.
+
+
+# Part C. Interpretation and Insights
+
+## C1 Summary Statistics
+
+## Departure Delay Statistics
+
+```{r}
+mean(flights_clean$dep_delay)
+median(flights_clean$dep_delay)
+```
+
+## Arrival Delay Statistics
+
+```{r}
+mean(flights_clean$arr_delay)
+median(flights_clean$arr_delay)
+```
+
+Notes:
+The mean and median provide measures of central tendency for departure and arrival delays. In many real-world datasets, these values differ because of the presence of extreme observations.
+
+## C2 Insight Question
+
+From what can be inferred from the visualizations, airline carrier appears to be one of the factors associated with flight delays. The boxplot of departure delays by airline shows that some carriers have much greater variability in delays than others, this suggests the differences in operational performance. It is also worth noting that the histogram suggest that while most flights are experience little to no delay, a small number of flights experience very large delays. Lastly, the scatter plot also suggests that flight distance alone is not the singular influence for arrival delays, as delayed flights occur across for both short and long distances.
+
+
+# Conclusion
+
+The analysis of the NYC Flights 2013 dataset opened the opportunity to apply fundamental data wrangling and visualization techniques using the tidyverse framework. The dataset was first explored to understand its structure and variable types, after which missing values in the delay variables were identified and removed to create a cleaner dataset. The histogram revealed a highly right-skewed distribution of departure delays, while the boxplot highlighted differences in delay variability among airline carriers. The scatter plot further demonstrated that flight distance alone does not strongly explain arrival delays. Overall, the activity demonstrated  yet another opportunity to further gain more insights about extracting meaningful data from real-world datasets. The techniques employed here provide a substantial amount of foundation for practicing the fundamentals for analyzing datasets. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
