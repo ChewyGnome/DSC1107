@@ -1,0 +1,225 @@
+---
+title: "Lab Formative Assessment 1"
+author: "Sindayen, Lorenzo Danilo V."
+subtitle: "DSC1111 Data Mining and Wrangling"
+date: "2026-06-24"
+output:
+  pdf_document: default
+  html_document:
+    
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+library(tidyverse) 
+library(dplyr) 
+library(tidyr) 
+library(knitr)
+
+data("starwars", package = "dplyr") 
+
+knitr::opts_chunk$set( 
+  fig.width = 8, 
+  fig.height = 5, 
+  echo = TRUE, 
+  warning = FALSE, 
+  message = FALSE 
+)
+```
+
+---
+
+\begin{center}
+\textbf{Data Wrangling Using the Star Wars Dataset}
+\end{center}
+
+---
+
+# Introduction
+
+Data Wrangling is a crucial step in any data analysis process due to the nature of most datasets often missing values, multiple data formats, and variables that require transformation before extracting any useful information. In this activity, the starwars dataset from the dplyr package is utilized to demonstrate several data wrangling techniques available in the tidyverse ecosystem. The objectives of this assessment are to inspect the structure of the dataset, summarize information through grouping operations, reshape data between wide and long formats, create new variables, handle missing values, and work with list-columns through unnesting operations. 
+
+# Q1. Dataset Inspection and Missing Values
+
+## Dataset Structure
+
+The structure of the dataset is displayed below to identify the variables present in the dataset and their corresponding data types.
+
+```{r}
+glimpse(starwars)
+```
+
+## Number of Observations and Variables
+
+The dimensions of the dataset are examined to determine the total number of observations and variables available for analysis.
+
+```{r}
+dim(starwars)
+
+nrow(starwars) 
+ncol(starwars)
+```
+
+## Missing Values Summary
+
+Missing values in the height, mass, and homeworld variables are identified due to having incomplete observations that may affect subsequent analyses.
+
+```{r}
+starwars %>%
+  summarise(
+    missing_height = sum(is.na(height)),
+    missing_mass = sum(is.na(mass)),
+    missing_homeworld = sum(is.na(homeworld))
+  )
+```
+
+Notes:
+The starwars dataset contains information about characters from the Star Wars universe, including physical characteristics, species, gender, homeworld, and film appearances. Inspecting the dataset structure provides an understanding of the available variables and their data types. Furthermore, examining missing values helps assess the data quality and identifies variables that may require additional cleaning or preprocessing before analysis.
+
+
+# Q2. Create a Wide Summary Table (pivot_wider)
+
+## Filtering and Grouping the Data
+
+Characters with non-missing species values are retained, after which the dataset is grouped according to species and gender. The mean height for each group is then calculated.
+
+```{r}
+wide_summary <- starwars %>%
+  filter(!is.na(species)) %>%
+  group_by(species, gender) %>%
+  summarise(
+    mean_height = mean(height, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  pivot_wider(
+    names_from = gender,
+    values_from = mean_height
+  )
+
+wide_summary
+```
+
+Notes:
+The resulting table presents average character heights across different species and gender categories. With each row representing a species while each column corresponds to a certain gender. This wide-format structure allows for easier comparison of average heights among genders within the same species and providing an insightful summary of the grouped data.
+
+
+# Q3. Convert Wide Table Back to Long Format (pivot_longer)
+
+## Transforming Wide Data into Tidy Format
+
+The wide summary table created in "pivot_wider" is converted back into long format. The gender columns are gathered into a single variable called gender, while the corresponding average heights are stored in a variable named mean_height. Rows containing missing mean-height values are removed.
+
+```{r}
+long_summary <- wide_summary %>% 
+  pivot_longer( 
+    cols = -species, 
+    names_to = "gender", 
+    values_to = "mean_height" 
+    ) %>% 
+  drop_na(mean_height)
+
+long_summary
+```
+
+Notes:
+The long-format dataset follows tidy data principles because each row now represents a unique species–gender combination. This format is generally preferred for data analysis and visualization because it simplifies grouping, filtering, and statistical operations. Removing missing values ensures that only valid observations remain in the dataset.
+
+
+# Q4. Create New Variables and Handle Missing Data
+
+## Creating BMI, Height Categories, and Replacing Missing Homeworld Values
+
+A Body Mass Index (BMI) variable is calculated using mass and height measurements. Characters are then categorized according to their height, and missing values in the homeworld variable are replaced with the value "Unknown".
+
+```{r}
+starwars_modified <- starwars %>% 
+  mutate( 
+    BMI = mass / ((height / 100)^2), 
+    
+    height_category = case_when( 
+      height < 170 ~ "short", 
+      height >= 170 & height < 190 ~ "average", 
+      height >= 190 ~ "tall", 
+      TRUE ~ NA_character_ 
+    ), 
+    
+    homeworld = replace_na(homeworld, "Unknown") 
+  )
+```
+
+Notes:
+The BMI variable provides an additional measure describing the relationship between a character's mass and height. Height categories simplify comparisons by grouping characters into short, average, and tall classifications. Replacing missing homeworld values with the "Unknown" variable improves data accuracy thus prevents missing values from interfering with future analyses.
+
+
+# Q5. Unnesting and Interpretation
+
+## Converting the Films List-Column into Long Format
+
+The films variable is stored as a list-column in which multiple film appearances are contained within a single observation. To analyze film appearances properly, the list-column must first be expanded so that each appearance occupies its own row
+
+```{r}
+film_counts <- starwars %>% 
+  select(name, films) %>% 
+  unnest(films) %>% 
+  count(name, sort = TRUE) %>% 
+  slice_head(n = 8) 
+
+film_counts
+```
+
+Notes:
+The unnest() function expands the list-column into a long-format structure where in each row corresponds to a single character–film combination. This transformation allows the number of film appearances for each character to be counted accurately, facilitating for further analysis of film participation.
+
+Interpretation:
+The data must be converted into long format because the list-columns store multiple values within a single cell, making the direct analysis difficult. By unnesting the films variable, each character–film combination becomes a separate observation that can be counted, grouped, and summarized. Long-format data is more consistent with tidy data principles and making the analysis easier using tidyverse functions.
+
+
+# Conclusion
+
+In this activity, several fundamental data wrangling techniques were performed using the starwars dataset from the tidyverse ecosystem. The dataset was first explored the structure to identify the missing values before applying various transformation procedures. Grouping and summarization operations were also performed to calculate average heights across species and gender categories. 
+
+After this, the data was then reshaped between wide and long formats using pivot_wider() and pivot_longer(). Additional data preparation tasks included creating a Body Mass Index (BMI) variable, categorizing characters according to height, and replacing missing homeworld values with a standardized label. The activity also introduced the handling of list-columns through the use of unnest(), which enabled the analysis of film appearances among characters. 
+
+Concluding this activity, the dataset properly showcased the value for cleaning, restructuring, and preparing data for future analysis; reinforcing the importance of tidy data principles in modern data science workflows. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
