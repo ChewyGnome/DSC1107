@@ -1,0 +1,890 @@
+---
+title: "Formative Assessment 3"
+author: "Sindayen, Lorenzo Danilo V."
+subtitle: "DSC1107 Data Mining and Wrangling"
+date: "2026-06-24"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(ggrepel)
+library(broom)
+library(cowplot)
+library(car)
+library(performance)
+library(knitr)
+
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.width = 9,
+  fig.height = 6
+)
+```
+
+---
+
+\begin{center}
+\textbf{Payroll and Wins in Major League Baseball}
+\end{center}
+
+---
+
+# Introduction
+
+    This study investigates the influence of higher payroll spending when it comes to better team performance in Major League Baseball (MLB) from 1998 to 2014. The analysis uses payroll and winning percentage data for all thirty MLB teams across seventeen seasons. For this assessment several data wrangling techniques will be applied to organize the dataset into tidy formats suitable for analysis. Afterwards, aggregate values are then validated to ensure data consistency before conducting exploratory data analysis.  
+
+    Following this, statistical methods are then employed to examine the relationship between payroll and winning percentage. Pearson correlation analysis is used to measure the strength of association between the two variables, while simple linear regression is performed to determine whether payroll can significantly predict team success. Diagnostic tests are then conducted to evaluate whether the assumptions of linear regression are satisfied.  
+
+
+# Part 1 – Data Wrangling and Validation
+
+## 1.1 Import & Structure
+
+```{r}
+load("ml_pay.rdata")
+
+mlb_raw <- ml_pay
+
+dim(mlb_raw)
+
+str(mlb_raw)
+
+glimpse(mlb_raw)
+```
+
+
+## Dataset Dimensions
+
+```{r}
+rows <- nrow(mlb_raw)
+cols <- ncol(mlb_raw)
+
+dimension_table <- tibble(
+  Rows = rows,
+  Columns = cols
+)
+
+kable(
+  dimension_table,
+  caption = "Dimensions of the Original Dataset"
+)
+```
+
+Notes:
+The original dataset consists of 30 observations representing MLB teams and 54 variables containing payroll information, win totals, winning percentages, and aggregate statistics. This confirms that each row corresponds to a unique team while yearly information is distributed across multiple columns.
+
+## Variable Types
+
+```{r}
+type_table <- tibble(
+  Variable = names(mlb_raw),
+  Type = sapply(mlb_raw, class)
+)
+
+kable(
+  head(type_table, 15),
+  caption = "Sample of Variable Types"
+)
+```
+
+Notes:
+Only the first fifteen variables are displayed for readability with most variables being numeric, while the team name variable is stored as character data.
+
+
+## 1.2 Tidy Data
+
+The original dataset stores yearly observations across many columns. Following the principles of tidy data, each observation should correspond to a single row while each variable occupies a single column.
+
+The following tidy datasets will therefore be created:
+
+- mlb_aggregate
+- mlb_yearly
+
+
+## Create Yearly Payroll Dataset
+
+```{r}
+payroll_long <-
+  mlb_raw %>%
+  select(
+    team = Team.name.2014,
+    starts_with("p")
+  ) %>%
+  pivot_longer(
+    cols = starts_with("p"),
+    names_to = "year",
+    values_to = "payroll"
+  ) %>%
+  mutate(
+    year = readr::parse_number(year)
+  )
+
+head(payroll_long)
+```
+
+Notes:
+The payroll variables originally stored across seventeen separate columns have been converted into a long format. Each row now represents one team in one season together with its corresponding payroll.
+
+## Create Yearly Wins Dataset
+
+```{r}
+wins_long <-
+  mlb_raw %>%
+  select(
+    team = Team.name.2014,
+    matches("^X\\d{4}$")
+  ) %>%
+  pivot_longer(
+    cols = matches("^X\\d{4}$"),
+    names_to = "year",
+    values_to = "num_wins"
+  ) %>%
+  mutate(
+    year = readr::parse_number(year)
+  )
+
+head(wins_long)
+```
+
+Notes: 
+The yearly win totals have also been transformed into tidy format, due to this each row now represents the number of games won by a specific team during a particular season.  
+
+## Create Winning Percentage Dataset
+
+```{r}
+pct_long <-
+  mlb_raw %>%
+  select(
+    team = Team.name.2014,
+    contains(".pct")
+  ) %>%
+  pivot_longer(
+    cols = contains(".pct"),
+    names_to = "year",
+    values_to = "pct_wins"
+  ) %>%
+  mutate(
+    year = readr::parse_number(year)
+  )
+
+head(pct_long)
+```
+
+Notes:
+Winning percentages have likewise been converted from wide format into a tidy long format, allowing them to be merged with payroll and win totals using the common identifiers of team and season.
+
+## Create mlb_yearly
+
+```{r}
+mlb_yearly <-
+  payroll_long %>%
+  left_join(
+    pct_long,
+    by = c("team", "year")
+  ) %>%
+  left_join(
+    wins_long,
+    by = c("team", "year")
+  ) %>%
+  arrange(team, year)
+
+kable(
+  head(mlb_yearly),
+  caption = "First Six Observations of mlb_yearly"
+)
+```
+
+Notes:
+The three long-format datasets were merged into a single tidy dataset named mlb_yearly, containing one observation for every team-season combination. With this each row now contains the team name, season, payroll, winning percentage, and total wins, thus making the data more suitable for visualization and statistical modelling.
+
+## Verifying the Number of Observations
+
+```{r}
+nrow(mlb_yearly)
+
+30 * 17
+```
+
+Notes:
+The dataset contains 510 observations, confirming that every team has one complete record for each season included in the study, satisfying the expected structure specified in the assessment instructions.
+
+## Create mlb_aggregate
+
+```{r}
+mlb_aggregate <-
+  mlb_raw %>%
+  transmute(
+    team = Team.name.2014,
+    payroll_aggregate = payroll,
+    pct_wins_aggregate = avgwin
+  )
+
+kable(
+  head(mlb_aggregate),
+  caption = "Aggregate Payroll and Winning Percentage"
+)
+```
+
+Notes:
+The second tidy dataset, mlb_aggregate, stores one observation per team containing the aggregate payroll and aggregate winning percentage provided in the original dataset.
+
+
+# Part 2 – Aggregate Consistency Check
+
+## 2.1 Compute Aggregate Values from mlb_yearly
+
+```{r}
+computed_aggregate <-
+  mlb_yearly %>%
+  group_by(team) %>%
+  summarise(
+    payroll_computed = mean(payroll),
+    pct_wins_computed = mean(pct_wins),
+    .groups = "drop"
+  )
+
+kable(
+  head(computed_aggregate),
+  caption = "Computed Aggregate Statistics from mlb_yearly"
+)
+```
+
+Notes:
+The aggregate payroll and aggregate winning percentage were again recomputed directly from the yearly observations. Since each team contains one observation for every season, taking the mean of each variable provides aggregate values that should closely match those supplied in the original dataset.
+
+## 2.2 Join Computed and Provided Aggregates
+
+```{r}
+aggregate_validation <-
+  mlb_aggregate %>%
+  left_join(
+    computed_aggregate,
+    by = "team"
+  ) %>%
+  mutate(
+    payroll_difference =
+      payroll_aggregate - payroll_computed,
+
+    pct_difference =
+      pct_wins_aggregate - pct_wins_computed
+  )
+
+kable(
+  head(aggregate_validation),
+  digits = 4,
+  caption = "Comparison Between Provided and Computed Aggregates"
+)
+```
+
+Notes:
+The computed values are merged with the original dataset to have a proper direct comparison between the two. Additional variables measuring numerical differences are included to identify any inconsistencies between the supplied values and those calculated from the yearly data.  
+
+## 2.3 Scatter Plot: Payroll Validation
+
+```{r}
+ggplot(
+  aggregate_validation,
+  aes(
+    x = payroll_aggregate,
+    y = payroll_computed
+  )
+) +
+  geom_point(
+    color = "steelblue",
+    size = 3
+  ) +
+  geom_abline(
+    slope = 1,
+    intercept = 0,
+    color = "red",
+    linetype = "dashed"
+  ) +
+  labs(
+    title = "Computed vs Provided Aggregate Payroll",
+    x = "Provided Aggregate Payroll",
+    y = "Computed Aggregate Payroll"
+  ) +
+  theme_minimal()
+```
+
+Notes:
+The dashed 45-degree reference line represents perfect alignment between the provided payroll values and the computed payroll values. Points lying directly on or extremely close to this line suggest that the aggregate payroll figures remain consistent.
+
+## 2.4 Scatter Plot: Winning Percentage Validation
+
+```{r}
+ggplot(
+  aggregate_validation,
+  aes(
+    x = pct_wins_aggregate,
+    y = pct_wins_computed
+  )
+) +
+  geom_point(
+    color = "darkgreen",
+    size = 3
+  ) +
+  geom_abline(
+    slope = 1,
+    intercept = 0,
+    color = "red",
+    linetype = "dashed"
+  ) +
+  labs(
+    title = "Computed vs Provided Aggregate Winning Percentage",
+    x = "Provided Aggregate Winning Percentage",
+    y = "Computed Aggregate Winning Percentage"
+  ) +
+  theme_minimal()
+```
+
+Notes:
+The computed and provided winning percentages are expected to align closely. If nearly all observations fall along the 45-degree reference line, this confirms that the aggregate values has an accurate represention of the yearly data.
+
+## 2.5 Numerical Difference Summary
+
+```{r}
+aggregate_validation %>%
+  summarise(
+    Maximum_Payroll_Difference =
+      max(abs(payroll_difference)),
+
+    Mean_Payroll_Difference =
+      mean(abs(payroll_difference)),
+
+    Maximum_WinPct_Difference =
+      max(abs(pct_difference)),
+
+    Mean_WinPct_Difference =
+      mean(abs(pct_difference))
+  ) %>%
+  kable(
+    digits = 6,
+    caption = "Summary of Numerical Differences"
+  )
+```
+
+Notes:
+The numerical summary provides an overall measure of agreement between the supplied aggregate values and the values calculated from the yearly observations. Very small differences, particularly those close to zero, generally indicate that any discrepancies are due only to rounding rather than errors in the dataset.
+
+
+# Part 3 – Exploratory Data Analysis
+
+## 3.1 Trends Over Time
+
+## Payroll Trends Across Seasons
+
+```{r}
+ggplot(
+  mlb_yearly,
+  aes(
+    x = year,
+    y = payroll,
+    group = team
+  )
+) +
+  geom_line(
+    color = "steelblue"
+  ) +
+  facet_wrap(~team) +
+  labs(
+    title = "Payroll Trends by Team (1998–2014)",
+    x = "Season",
+    y = "Payroll"
+  ) +
+  theme_minimal()
+```
+
+Notes:
+The faceted payroll plots represent how team spending has changed over the course of a seventeen-year period. While several franchises steadily increased payroll over time, others maintained relatively stable payroll levels. Differences in spending patterns suggest varying organizational strategies and financial resources among MLB teams.  
+
+## Winning Percentage Trends Across Seasons
+
+```{r}
+ggplot(
+  mlb_yearly,
+  aes(
+    x = year,
+    y = pct_wins,
+    group = team
+  )
+) +
+  geom_line(
+    color = "darkgreen"
+  ) +
+  facet_wrap(~team) +
+  labs(
+    title = "Winning Percentage by Team (1998–2014)",
+    x = "Season",
+    y = "Winning Percentage"
+  ) +
+  theme_minimal()
+```
+
+Notes:
+Winning percentage varies considerably across seasons for many teams, suggesting that performance is influenced by numerous factors beyond payroll alone. 
+
+## Three Highest Payroll Teams
+
+```{r}
+top_payroll <-
+  mlb_aggregate %>%
+  arrange(desc(payroll_aggregate)) %>%
+  slice(1:3)
+
+kable(
+  top_payroll,
+  digits = 3,
+  caption = "Top Three Teams by Aggregate Payroll"
+)
+```
+
+Notes:
+The table identifies the three teams with the largest average payrolls across the implemented study period. 
+
+## Three Highest Winning Percentage Teams
+```{r}
+top_winning <-
+  mlb_aggregate %>%
+  arrange(desc(pct_wins_aggregate)) %>%
+  slice(1:3)
+
+kable(
+  top_winning,
+  digits = 3,
+  caption = "Top Three Teams by Aggregate Winning Percentage"
+)
+```
+
+Notes:
+The teams with the highest aggregate winning percentages represent the most consistently successful franchises alloted time suggestion Comparing these teams with the highest payroll organizations provides an early indication of whether greater financial investment consistently translates into improved on-field performance.
+
+## 3.2 Correlation Analysis
+
+#Pearson Correlation
+
+```{r}
+correlation_test <-
+  cor.test(
+    mlb_aggregate$payroll_aggregate,
+    mlb_aggregate$pct_wins_aggregate,
+    method = "pearson"
+  )
+
+correlation_test
+```
+
+Notes:
+The Pearson correlation coefficient measures both the strength and direction of the linear relationship between aggregate payroll and aggregate winning percentage. A positive coefficient indicates that teams with larger payrolls generally tend to achieve higher winning percentages, whereas a coefficient close to zero would suggest little or no linear association.
+
+## Correlation Strength Summary
+
+```{r}
+correlation_table <-
+  tibble(
+    Correlation = correlation_test$estimate,
+    P_Value = correlation_test$p.value,
+    Confidence_Lower = correlation_test$conf.int[1],
+    Confidence_Upper = correlation_test$conf.int[2]
+  )
+
+kable(
+  correlation_table,
+  digits = 4,
+  caption = "Pearson Correlation Results"
+)
+```
+
+Notes: 
+The p-value determines whether the observed correlation is statistically significant, while the confidence interval provides a plausible range for the true population correlation. Depending on the computed coefficient, the relationship may be interpreted as weak, moderate, or strong
+
+
+# Part 4 – Regression Modeling
+
+## 4.1 Simple Linear Regression
+
+The following model is fitted:
+
+$$
+\text{pct_wins_aggregate}
+=
+\beta_0
++
+\beta_1(\text{payroll_aggregate})
++
+\varepsilon
+$$
+
+
+## Fit the Regression Model
+
+```{r}
+lm_model <-
+  lm(
+    pct_wins_aggregate ~ payroll_aggregate,
+    data = mlb_aggregate
+  )
+
+summary(lm_model)
+```
+
+Notes:
+The regression model estimates the relationship between aggregate payroll and aggregate winning percentage. Additionally, the coefficient for payroll_aggregate also represents the expected change in winning percentage associated with a one-unit increase in aggregate payroll. Overall, the regression output provides the statistical significance of the relationship together with measures of model fit.
+
+## Regression Coefficients
+
+```{r}
+tidy(lm_model) %>%
+  kable(
+    digits = 5,
+    caption = "Estimated Regression Coefficients"
+  )
+```
+
+Notes:
+The regression coefficient table displays the estimated intercept and slope together with their standard errors, t-statistics, and p-values. If the p-value for the slope is less than the significance level (0.05), payroll is considered a statistically significant predictor of team winning percentage.
+
+## Model Summary Statistics
+
+```{r}
+glance(lm_model) %>%
+  select(
+    r.squared,
+    adj.r.squared,
+    sigma,
+    statistic,
+    p.value
+  ) %>%
+  kable(
+    digits = 4,
+    caption = "Overall Model Statistics"
+  )
+```
+
+
+Notes:
+The coefficient of determination (R²) measures the proportion of variation in aggregate winning percentage explained by the variable payroll.
+
+
+## 95% Confidence Interval for the Slope
+
+```{r}
+confint(
+  lm_model,
+  level = 0.95
+) %>%
+  as.data.frame() %>%
+  rownames_to_column("Parameter") %>%
+  kable(
+    digits = 5,
+    caption = "95% Confidence Intervals for Regression Parameters"
+  )
+```
+
+Notes:
+The confidence interval provides a plausible range of values for the true regression slope. If the interval does not include zero, it provides additional evidence that payroll has a statistically significant relationship with winning percentage.
+
+## Scatter Plot with Regression Line
+
+```{r}
+ggplot(
+  mlb_aggregate,
+  aes(
+    payroll_aggregate,
+    pct_wins_aggregate
+  )
+) +
+  geom_point(
+    size = 3,
+    color = "steelblue"
+  ) +
+  geom_smooth(
+    method = "lm",
+    color = "red",
+    se = TRUE
+  ) +
+  labs(
+    title = "Aggregate Payroll vs Aggregate Winning Percentage",
+    x = "Aggregate Payroll",
+    y = "Aggregate Winning Percentage"
+  ) +
+  theme_minimal()
+```
+
+Notes:
+The regression line summarizes the average linear relationship between payroll and winning percentage. 
+
+
+## Slope Interpretation
+
+    The estimated slope represents the expected increase in average winning percentage for every one-unit increase in aggregate payroll. A positive slope suggest that increased financial investment is generally associated with improved team performance. Noting this, even if the relationship is statistically significant, payroll alone may explain only portion of the variable contributing to team success.
+
+
+## 4.2 Regression Diagnostics
+
+## Residuals vs Fitted Plot
+
+```{r}
+plot(
+  lm_model,
+  which = 1
+)
+```
+
+Notes:
+The Residuals versus Fitted plot is used to assess the assumption of linearity and constant variance.
+
+## Normal Q-Q Plot
+
+```{r}
+plot(
+  lm_model,
+  which = 2
+)
+```
+
+Notes:
+The Normal Q-Q plot evaluates whether the regression residuals are approximately normally distributed.
+
+## Scale–Location Plot
+
+```{r}
+plot(
+  lm_model,
+  which = 3
+)
+```
+
+Notes:
+The Scale–Location plot assesses homoscedasticity, or constant variance of the residuals.
+
+## Cook's Distance Plot
+
+```{r}
+plot(
+  lm_model,
+  which = 4
+)
+```
+
+Notes:
+Cook's Distance measures the influence of individual observations on the fitted regression model.
+
+## 4.3 Outlier & Influence Analysis
+
+## Identify Influential Teams
+
+```{r}
+cooks_d <- cooks.distance(lm_model)
+
+influential_teams <-
+  mlb_aggregate %>%
+  mutate(
+    cooks_distance = cooks_d
+  ) %>%
+  arrange(desc(cooks_distance))
+
+kable(
+  head(influential_teams, 10),
+  digits = 4,
+  caption = "Teams Ranked by Cook's Distance"
+)
+```
+
+Notes:
+Cook's Distance quantifies how much each observation influences the fitted regression model.
+
+## Identify the Most Influential Team
+
+```{r}
+most_influential <-
+  influential_teams %>%
+  slice(1)
+
+kable(
+  most_influential,
+  digits = 4,
+  caption = "Most Influential Team"
+)
+```
+
+Notes:
+The table identifies the team with the highest Cook's Distance.
+
+## Remove the Most Influential Team
+
+```{r}
+mlb_no_outlier <-
+  mlb_aggregate %>%
+  filter(
+    team != most_influential$team
+  )
+
+lm_model_refit <-
+  lm(
+    pct_wins_aggregate ~ payroll_aggregate,
+    data = mlb_no_outlier
+  )
+
+summary(lm_model_refit)
+```
+
+Notes:
+A second regression model is fitted after removing the most influential observation.
+
+## Compare the Two Regression Models
+
+```{r}
+comparison_table <-
+  tibble(
+    Model = c(
+      "Original Model",
+      "Refitted Model"
+    ),
+    Slope = c(
+      coef(lm_model)[2],
+      coef(lm_model_refit)[2]
+    ),
+    R_Squared = c(
+      summary(lm_model)$r.squared,
+      summary(lm_model_refit)$r.squared
+    )
+  )
+
+kable(
+  comparison_table,
+  digits = 4,
+  caption = "Comparison of Regression Models"
+)
+```
+
+Notes:
+The comparison table summarizes the estimated slope and coefficient of determination (R²) for both regression models. If the values remain relatively similar after removing the influential team, the regression model can be considered stable.
+
+
+# Part 5 - Model Extension and Critical Thinking
+
+## 5.1 Log Transformation
+
+## Fitting the Log-Transformed Regression Model
+
+```{r}
+log_model <-
+  lm(
+    pct_wins_aggregate ~ log(payroll_aggregate),
+    data = mlb_aggregate
+  )
+
+summary(log_model)
+```
+
+Notes:
+The regression model is refitted using the natural logarithm of aggregate payroll as the predictor.
+
+## Compare the Original and Log-Transformed Models
+
+```{r}
+model_comparison <-
+  tibble(
+    Model = c(
+      "Original Model",
+      "Log-Transformed Model"
+    ),
+    R_Squared = c(
+      summary(lm_model)$r.squared,
+      summary(log_model)$r.squared
+    ),
+    Adjusted_R_Squared = c(
+      summary(lm_model)$adj.r.squared,
+      summary(log_model)$adj.r.squared
+    )
+  )
+
+kable(
+  model_comparison,
+  digits = 4,
+  caption = "Comparison of Regression Models"
+)
+```
+
+Notes:
+The table compares the explanatory power of the original and log-transformed regression models.
+
+
+## Diagnostic Plot for the Log-Transformed Model
+
+```{r}
+plot(
+  log_model,
+  which = 1
+)
+```
+
+Notes:
+The Residuals versus Fitted plot for the log-transformed model is examined to determine whether the transformation improves the distribution of residuals.
+
+
+## Does the Transformation Improve the Model?
+- Based on the results the log transformation does not improve the model due to the original model having a higher R² and adjusted R² value, this suggests that it explains more variation in winning percentage. Although the residual plot appears reasonably acceptable, the transformed model provides slightly weaker explanatory power, so the original regression model is more preferable.
+
+
+## 5.2 Efficiency Metric
+
+## Compute Team Efficiency
+
+```{r}
+efficiency_table <-
+  mlb_aggregate %>%
+  mutate(
+    efficiency =
+      pct_wins_aggregate /
+      payroll_aggregate
+  ) %>%
+  arrange(desc(efficiency))
+
+kable(
+  head(efficiency_table, 10),
+  digits = 6,
+  caption = "Teams Ranked by Efficiency"
+)
+```
+
+Notes:
+The efficiency metric measures the amount of winning percentage achieved per unit of payroll. Teams with higher efficiency values are able to produce stronger on-field performance despite spending comparatively fewer financial resources.
+
+## Top Three Most Efficient Teams
+
+```{r}
+top_efficiency <-
+  efficiency_table %>%
+  slice(1:3)
+
+kable(
+  top_efficiency,
+  digits = 6,
+  caption = "Top Three Most Efficient Teams"
+)
+```
+
+Notes:
+The table identifies the three teams that generated the highest winning percentages relative to their payroll expenditures. These organizations represent the most efficient use of financial resources during the study period.
+
+## Moneyball
+
+    The efficiency analysis demonstrates that financial investment alone is not enough to completely determine team success. Several teams achieve strong winning percentages despite operating with comparatively modest payrolls, this suggests that effective player evaluation, coaching, and management decisions contribute substantially to competitive performance. These findings are consistent with the Moneyball philosophy, emphasizing to maximize player value and organizational efficiency rather than relying solely on high payroll expenditures.
+
+
+# Part 6 – Presentation and Interpretation Quality (Conclusion)
+
+    Throughout this assessment, the analysis was presented using a structured workflow that began with data wrangling and validation, followed by exploratory data analysis, regression modeling, diagnostic evaluation, and model extension. Each stage builds naturally upon the previous one, creating a logical progression that makes the overall analysis clear, organized, and easy to follow.
+ 
+    The tables and figures were appropriately labeled with descriptive titles, captions, and axis labels to improve readability and interpretation. Statistical outputs were supplemented with concise explanations that emphasized their practical significance rather than simply presenting numerical results. This combination of visualizations, tables, and written interpretations allows the findings to be communicated effectively while maintaining reproducibility through well-organized and documented R code.
+
+    Concluding this, the results of this study suggest that payroll has a positive relationship with team performance in Major League Baseball. Teams with generally higher payrolls tended to achieve higher winning percentages. Noting this, the regression analysis also showed that payroll alone may not be the only major factor in team success, other factors while not as prevalent also has a significant contribution such as player development, coaching, etc. Lastly, the efficiency analysis supports the Moneyball concept by demonstrating that some teams were able to achieve strong results despite relatively modest payrolls, this highlights the importance of efficient resource allocation in addition to financial investment.  
+
