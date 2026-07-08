@@ -1,0 +1,644 @@
+---
+title: "Summative Assessment 1"
+author: "Sindayen, Lorenzo Danilo V."
+subtitle: "DSC1107 Data Mining and Wrangling"
+date: "2026-07-08"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(caret)
+library(glmnet)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(ggplot2)
+library(corrplot)
+library(knitr)
+library(e1071)
+library(pROC)
+```
+
+---
+
+\begin{center}
+\textit{GitHub Link:} \\
+\url{https://github.com/ChewyGnome/DSC1107}
+\end{center}
+
+---
+
+
+# Introduction
+
+In this activity R will be applied as tool for data mining in the customer churn dataset. This analysis will contain several data collection techniques such as data exploration, visualization, data preparation, predictive modeling, and regression-based. These will be employed to identify some of the key factors that influence customer churn and to also evaluate different machine learning models.
+
+
+# Unit 1 – R for Data Mining
+
+## 1.1 Introduction to Modern Data Mining
+
+## Load Dataset and Explore Structure
+
+```{r}
+customer_churn <- read.csv("customer_churn.csv")
+
+dim(customer_churn)
+
+str(customer_churn)
+
+summary(customer_churn)
+
+colSums(is.na(customer_churn))
+```
+
+Notes:
+The dataset contains 10,000 observations and 12 variables with no missing values. It includes customer demographics, service information, billing details, and the churn status, making it suitable for predictive analysis.
+
+Importance of Data Mining:
+Data mining helps identify patterns that explain why customers leave a company, these insights allow companies and businesses to improve customer retention and understand customer behavior to have better effectivity in decision-making.
+
+## 1.2 Data Visualization
+
+## Visualization 1 – Churn Distribution
+
+```{r}
+ggplot(customer_churn,
+       aes(x = Churn,
+           fill = Churn)) +
+  geom_bar() +
+  labs(title = "Customer Churn Distribution",
+       x = "Churn",
+       y = "Number of Customers") +
+  theme_minimal()
+```
+
+Notes:
+The visualization shows the overall distribution of customer churn and indicates whether the dataset is balanced or skewed toward one class.
+
+## Visualization 2 – Monthly Charges vs Churn
+
+```{r}
+ggplot(customer_churn,
+       aes(x = Churn,
+           y = MonthlyCharges,
+           fill = Churn)) +
+  geom_boxplot() +
+  labs(title = "Monthly Charges by Churn Status") +
+  theme_minimal()
+```
+
+Notes:
+Customers with higher monthly charges tend to show a higher likelihood of churn, suggesting pricing may influence customer retention.
+
+## Visualization 3 – Tenure vs Churn
+
+```{r}
+ggplot(customer_churn,
+       aes(x = Tenure,
+           fill = Churn)) +
+  geom_histogram(binwidth = 3,
+                 alpha = 0.7,
+                 position = "identity") +
+  labs(title = "Customer Tenure Distribution by Churn") +
+  theme_minimal()
+```
+
+Notes:
+Customers with shorter tenure appear more likely to churn, while longer-tenure customers generally remain with the company.
+
+
+## 1.3 Data Transformation
+
+## Handle Missing Values
+
+```{r}
+colSums(is.na(customer_churn))
+```
+
+Notes:
+No missing values were found, so no imputation or removal was required.
+
+## Convert Categorical Variables to Factors
+
+```{r}
+customer_churn <- customer_churn %>%
+  mutate(
+    Gender = as.factor(Gender),
+    SeniorCitizen = as.factor(SeniorCitizen),
+    Partner = as.factor(Partner),
+    Dependents = as.factor(Dependents),
+    PhoneService = as.factor(PhoneService),
+    InternetService = as.factor(InternetService),
+    Contract = as.factor(Contract),
+    Churn = as.factor(Churn)
+  )
+```
+
+Notes:
+Categorical variables were converted to factors so they can be used correctly in statistical models.
+
+## Standardize Numerical Variables
+
+```{r}
+customer_churn <- customer_churn %>%
+  mutate(
+    Tenure_Scaled = scale(Tenure),
+    MonthlyCharges_Scaled = scale(MonthlyCharges),
+    TotalCharges_Scaled = scale(TotalCharges)
+  )
+```
+
+Notes:
+Numerical variables were standardized to place them on the same scale, improving model performance for algorithms sensitive to feature magnitude.
+
+## 1.4 Data Wrangling
+
+## Remove Outliers
+
+```{r}
+Q1 <- quantile(customer_churn$MonthlyCharges, 0.25)
+
+Q3 <- quantile(customer_churn$MonthlyCharges, 0.75)
+
+IQR_Value <- IQR(customer_churn$MonthlyCharges)
+
+customer_clean <- customer_churn %>%
+  filter(
+    MonthlyCharges >= (Q1 - 1.5 * IQR_Value),
+    MonthlyCharges <= (Q3 + 1.5 * IQR_Value)
+  )
+```
+
+Notes:
+Removing outliers helps reduce the influence of unusual observations during model training.
+
+## Create Derived Variables
+
+```{r}
+customer_clean <- customer_clean %>%
+  mutate(
+    AvgMonthlySpend = TotalCharges / ifelse(Tenure == 0, 1, Tenure)
+  )
+```
+
+Notes:
+This feature may provide additional information about customer spending patterns that can improve predictive models.
+
+## Summary Statistics
+
+```{r}
+customer_clean %>%
+  group_by(Churn) %>%
+  summarise(
+    Customers = n(),
+    AvgTenure = mean(Tenure),
+    AvgMonthlyCharges = mean(MonthlyCharges),
+    AvgTotalCharges = mean(TotalCharges)
+  )
+```
+
+Notes:
+The summary highlights the key differences between customers who churned and those who stayed, this helps with identifying important predictive variables.
+
+## 1.5 Review
+The exploratory analysis showed that the dataset is complete and suitable for thr application of data mining. The visualizations identified relationships between churn, tenure, and monthly charges, while data transformation and wrangling prepared the dataset for predictive modeling. Overall, these preprocessing steps improves the reliability of the models developed in the next section.
+
+
+# Unit 2 – Tuning Predictive Models
+
+## Model Complexity
+
+## Split the Dataset
+
+```{r}
+set.seed(123)
+
+trainIndex <- createDataPartition(customer_clean$Churn,
+                                  p = 0.8,
+                                  list = FALSE)
+
+train_data <- customer_clean[trainIndex, ]
+
+test_data <- customer_clean[-trainIndex, ]
+```
+
+Notes:
+The dataset was divided into 80% training data and 20% testing data to evaluate model performance on unseen observations.
+
+## Decision Tree Model
+
+```{r}
+decision_tree <- rpart(
+  Churn ~ Tenure + MonthlyCharges + TotalCharges +
+    Contract + InternetService + SeniorCitizen,
+  data = train_data,
+  method = "class"
+)
+
+rpart.plot(decision_tree)
+```
+
+Notes:
+The Decision Tree produces easy-to-follow decision rules and to show how different variables contribute to predicting customer churn.  
+
+## Logistic Regression Model
+
+```{r}
+logistic_model <- glm(
+  Churn ~ Tenure + MonthlyCharges + TotalCharges +
+    Contract + InternetService + SeniorCitizen,
+  data = train_data,
+  family = "binomial"
+)
+
+summary(logistic_model)
+```
+
+Notes:
+The model estimates how each predictor influences the likelihood of churn while providing statistically interpretable coefficients.
+
+Model Complexity Comparison:
+Decision Trees are easier to interpret but may overfit if they become too deep. For comparison, logistic regression is simpler, as it assumes a linear relationship with the log-odds of churn which is generally more stable.
+
+## 2.2 Bias-Variance Trade-Off
+
+The bias-variance trade-off describes the balance between underfitting and overfitting.
+  - High bias models are simple but may miss important patterns.
+  - High variance models fit the training data well but may perform poorly on new data.
+Decision Trees usually have higher variance, while Logistic Regression generally has higher bias but better generalization.
+
+## 2.3 Cross-Validation
+
+## Perform 10-Fold Cross Validation
+
+```{r}
+control <- trainControl(
+  method = "cv",
+  number = 10,
+  classProbs = TRUE,
+  summaryFunction = twoClassSummary,
+  savePredictions = TRUE
+)
+
+cv_model <- train(
+  Churn ~ Tenure + MonthlyCharges + TotalCharges +
+    Contract + InternetService + SeniorCitizen,
+  data = train_data,
+  method = "glm",
+  family = "binomial",
+  trControl = control,
+  metric = "ROC"
+)
+
+cv_model
+```
+
+Notes:
+Cross-validation provides a more reliable estimate of model performance by reducing the effect of a single train-test split.
+
+## Generate Predictions
+
+```{r}
+predictions <- predict(logistic_model,
+                       test_data,
+                       type = "response")
+
+predicted_class <- ifelse(predictions > 0.5,
+                          "Yes",
+                          "No")
+
+predicted_class <- factor(predicted_class,
+                          levels = levels(test_data$Churn))
+```
+
+## Confusion Matrix
+
+```{r}
+conf_matrix <- confusionMatrix(
+  predicted_class,
+  test_data$Churn,
+  positive = "Yes"
+)
+
+conf_matrix
+```
+
+## Accuracy, Precision, Recall and F1-Score
+
+```{r}
+accuracy <- conf_matrix$overall["Accuracy"]
+
+precision <- conf_matrix$byClass["Precision"]
+
+recall <- conf_matrix$byClass["Recall"]
+
+f1_score <- conf_matrix$byClass["F1"]
+
+accuracy
+precision
+recall
+f1_score
+```
+
+Notes:
+  - Accuracy is the measure of overall prediction correctness.
+  - Precision is the measure of how many predicted churn customers actually churned.
+  - Recall is the measure of how many actual churn customers were identified.
+  - F1-score balances precision and recall into a single metric.
+
+## 2.4 Classification
+
+## Train Random Forest Model
+
+```{r}
+set.seed(123)
+
+rf_model <- randomForest(
+  Churn ~ Tenure + MonthlyCharges + TotalCharges +
+    Contract + InternetService + SeniorCitizen,
+  data = train_data,
+  ntree = 300,
+  importance = TRUE
+)
+
+rf_model
+```
+
+## Hyperparameter Tuning
+
+```{r}
+grid <- expand.grid(
+  mtry = c(2, 3, 4, 5)
+)
+
+rf_control <- trainControl(
+  method = "cv",
+  number = 10
+)
+
+rf_tuned <- train(
+  Churn ~ Tenure + MonthlyCharges + TotalCharges +
+    Contract + InternetService + SeniorCitizen,
+  data = train_data,
+  method = "rf",
+  tuneGrid = grid,
+  trControl = rf_control
+)
+
+rf_tuned
+```
+
+## Final Model Evaluation
+
+```{r}
+rf_predictions <- predict(
+  rf_tuned,
+  test_data
+)
+
+rf_results <- confusionMatrix(
+  rf_predictions,
+  test_data$Churn
+)
+
+rf_results
+```
+
+Notes:
+The Random Forest model generally provides better predictive performance than a single Decision Tree due to the fact that it combines predictions from multiple trees, which in turn, reduces the overfitting thus improving generalization.
+
+
+# Unit 3 – Regression-Based Methods
+
+## 3.1 Logistic Regression
+
+## Fit the Logistic Regression Model
+
+```{r}
+logistic_regression <- glm(
+  Churn ~ Tenure + MonthlyCharges + TotalCharges,
+  data = customer_clean,
+  family = "binomial"
+)
+
+summary(logistic_regression)
+```
+
+Notes:
+
+The coefficients suggest how each variable affects the probability of customer churn, positive coefficients increase the likelihood of churn, while negative coefficients reduce it. The p-values determine whether each predictor is statistically significant.
+
+## Assess Model Significance
+
+```{r}
+
+anova(logistic_regression, test = "Chisq")
+```
+
+Notes:
+
+Predictors with p-values less than 0.05 are considered statistically significant and contribute meaningfully to predicting customer churn.
+
+## 3.2 Regression in High Dimensions
+High-dimensional regression occurs when a lot of predictor variables are included in a model. This in turn may increase model complexity, introduce multicollinearity, and reduce prediction accuracy.
+
+Common solutions include:
+
+  - Principal Component Analysis (PCA)
+  - Ridge Regression
+  - Lasso Regression
+
+These methods reduce overfitting and improve model stability.
+
+## Principal Component Analysis (PCA)
+
+```{r}
+numeric_data <- customer_clean %>%
+  select(Tenure,
+         MonthlyCharges,
+         TotalCharges)
+
+pca_model <- prcomp(
+  numeric_data,
+  center = TRUE,
+  scale. = TRUE
+)
+
+summary(pca_model)
+```
+
+
+## PCA Scree Plot
+
+```{r}
+plot(pca_model,
+     type = "l",
+     main = "Scree Plot")
+```
+
+Notes:
+The first principal components usually explain most of the variation in the data, thus, allowing dimensionality reduction with minimal information loss.
+
+## 3.3 Ridge Regression
+
+## Prepare Model Matrix
+
+```{r}
+x <- model.matrix(
+  Churn ~ Tenure + MonthlyCharges + TotalCharges +
+    Gender + SeniorCitizen + Partner +
+    Dependents + Contract + InternetService,
+  customer_clean
+)[,-1]
+
+y <- ifelse(customer_clean$Churn == "Yes", 1, 0)
+```
+
+## Perform Ridge Regression
+
+```{r}
+set.seed(123)
+
+ridge_model <- cv.glmnet(
+  x,
+  y,
+  alpha = 0,
+  family = "binomial"
+)
+
+plot(ridge_model)
+```
+
+## Optimal Lambda
+
+```{r}
+ridge_model$lambda.min
+```
+
+## Ridge Coefficients
+
+```{r}
+coef(ridge_model,
+     s = "lambda.min")
+     
+```
+
+Notes:
+The optimal lambda selected through cross-validation provides the best balance between model complexity and prediction accuracy.
+
+## 3.4 Lasso Regression
+
+## Fit Lasso Regression
+
+```{r}
+set.seed(123)
+
+lasso_model <- cv.glmnet(
+  x,
+  y,
+  alpha = 1,
+  family = "binomial"
+)
+
+plot(lasso_model)
+```
+
+## Optimal Lambda
+
+```{r}
+lasso_model$lambda.min
+```
+
+## Lasso Coefficients
+
+```{r}
+coef(
+  lasso_model,
+  s = "lambda.min"
+)
+```
+
+Notes:
+Variables with coefficients equal to zero are effectively removed from the model, thus, allowing Lasso Regression to perform automatic feature selection while maintaining good predictive performance.
+
+# Conclusion
+
+In this assessment R was utilized to demonstrate the complete data mining process, beginning with data exploration and preparation before applying predictive modeling techniques. Visualizations and data wrangling improved understanding of the customer churn dataset, while Decision Tree, Logistic Regression, and Random Forest models were used to predict customer churn. Regression-based methods, including PCA, Ridge Regression, and Lasso Regression, were used to further improve the model interpretation, addressing issues related to model complexity and high-dimensional data. Overall, the analysis showed how data mining techniques can support more accurate predictions and provide valuable insights for customer retention strategies.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
