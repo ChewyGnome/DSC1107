@@ -1,0 +1,397 @@
+---
+title: "Formative Assessment 2"
+author: "Sindayen, Lorenzo Danilo V."
+subtitle: "DSC1107 Data Mining and Wrangling"
+date: "2026-07-08"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(readr)
+library(stringr)
+library(knitr)
+```
+
+---
+
+\begin{center}
+\textit{GitHub Link:} \\
+\url{https://github.com/ChewyGnome/DSC1107}
+\end{center}
+
+---
+
+# 1.0 Introduction
+
+  Data wrangling is an essential step in the data analysis process involving the transformation of raw data into a clean, structured, and meaningful format suitable for analysis. Together with data manipulation and visualization, these techniques enable analysts to explore datasets efficiently, identify trends, and communicate insights effectively.
+
+  For this report, the World Health Organization (WHO) Tuberculosis dataset and the World Bank Population dataset will be used to examine global tuberculosis (TB) trends over time. Using the tidyverse collection of packages, the assessment demonstrates the process of importing, inspecting, tidying, joining, cleaning, manipulating, and visualizing data. The analysis also computes tuberculosis cases per 100,000 population, compares TB cases across countries and demographic groups, and uses graphical visualizations to identify patterns and relationships within the data.  
+
+  The primary objective of this assessment is to apply the fundamental concepts of data wrangling, manipulation, and visualization in R while following tidy data principles to produce meaningful and interpretable results.
+
+# 2.0   Import
+
+## 2.1    Preview the datasets
+
+```{r}
+data("who", package = "tidyr")
+data("population", package = "tidyr")
+
+head(who)
+head(population)
+
+glimpse(who)
+glimpse(population)
+```
+
+## 2.2    Import the datasets
+
+```{r}
+class(who)
+class(population)
+```
+
+## 2.3    Determine the number of rows and columns
+
+```{r}
+dim(who)
+
+nrow(who)
+ncol(who)
+
+dim(population)
+
+nrow(population)
+ncol(population)
+```
+
+## 2.4    Inspect variable types and create population2
+
+```{r}
+glimpse(population)
+
+summary(population)
+
+population2 <- population %>%
+  mutate(
+    year = as.integer(year),
+    population = as.numeric(population)
+  )
+
+glimpse(population2)
+```
+
+**Notes:**
+The population dataset is inspected to verify that each variable has the appropriate data type. Although the variables are already suitable for analysis, `year` is explicitly converted to an integer and `population` to a numeric variable to ensure consistency in subsequent calculations. The updated dataset is stored as `population2`.
+
+
+
+# 3.0   Tidy Data
+
+## 3.1    WHO Dataset
+
+## 3.1.1    Identify the variables
+
+```{r}
+names(who)
+```
+
+**Notes:**
+The WHO dataset contains four identifier variables (country, iso2, iso3, and year), while the remaining variables represent tuberculosis cases categorized by TB type, sex, and age group.
+
+## 3.1.2    Convert WHO dataset into tidy format
+
+```{r}
+who2 <- who %>%
+  pivot_longer(
+    cols = starts_with("new"),
+    names_to = "key",
+    values_to = "cases"
+  )
+
+glimpse(who2)
+```
+
+## 3.1.3    Separate TB information
+
+```{r}
+who3 <- who2 %>%
+  separate(
+    key,
+    into = c("new", "type", "sexage"),
+    sep = "_",
+    fill = "right"
+  ) %>%
+  mutate(
+    sexage = if_else(is.na(sexage), type, sexage),
+    type = if_else(new == "newrel", "rel", type)
+  ) %>%
+  select(-new)
+
+glimpse(who3)
+```
+
+## 3.1.4    Separate sex and age group
+
+```{r}
+who_tidy <- who3 %>%
+  separate(
+    sexage,
+    into = c("sex", "age"),
+    sep = 1
+  )
+
+glimpse(who_tidy)
+```
+
+
+## 3.2    Population Dataset
+
+## 3.2.1    Identify the variables
+
+```{r}
+names(population2)
+```
+
+**Notes:**
+The population dataset contains three variables: country, year, and population. Each row represents the population of a specific country in a given year, making the dataset suitable for joining with the WHO tuberculosis dataset.
+
+## 3.2.2    Create population3
+
+```{r}
+population3 <- population2
+
+glimpse(population3)
+```
+
+
+## 3.2.3    Create population_tidy
+
+```{r}
+population_tidy <- population3 %>%
+  mutate(
+    population = as.numeric(population)
+  )
+
+glimpse(population_tidy)
+```
+
+
+## 3.3    Join Datasets
+
+## 3.3.1    Identify the joining variables
+
+```{r}
+intersect(names(who_tidy), names(population_tidy))
+```
+
+**Notes:**
+The common variables between the two datasets are country and year.
+
+## 3.3.2    Rename variables
+
+**Notes:**
+No renaming is required because both datasets already contain the variables country and year. 
+
+## 3.3.3    Join the datasets
+
+```{r}
+tuberculosis <- who_tidy %>%
+  left_join(population_tidy, by = c("country", "year"))
+
+glimpse(tuberculosis)
+```
+
+**Notes:**
+A left join is performed using the common variables country and year, this produces a single dataset containing tuberculosis case information together with each country's population.
+
+
+## 3.4    Clean Up Data
+
+## 3.4.1    Remove unnecessary variables
+
+```{r}
+tuberculosis <- tuberculosis %>%
+  select(country, year, type, sex, age, cases, population)
+
+glimpse(tuberculosis)
+```
+
+## 3.4.2    Remove missing values
+
+```{r}
+tuberculosis <- tuberculosis %>%
+  drop_na()
+
+glimpse(tuberculosis)
+```
+
+## 3.4.3    Save cleaned dataset
+
+```{r}
+tuberculosis
+```
+
+**Notes:**
+The cleaned dataset now contains only the variables required for the analysis, and all observations with missing values have been removed.
+
+
+# 4.0   Data Manipulation
+
+## 4.1    Total TB cases among men and women in the United States (21st Century)
+
+```{r}
+us_cases <- tuberculosis %>%
+  filter(
+    country == "United States of America",
+    year >= 2000
+  ) %>%
+  group_by(sex) %>%
+  summarise(
+    total_cases = sum(cases),
+    .groups = "drop"
+  )
+
+us_cases
+```
+
+**Notes:**
+The output displays the total tuberculosis cases reported among males and females in the United States from 2000 onwards. The sex with the larger total represents the group with the highest reported number of cases.
+
+## 4.2    Create cases_per_100k
+
+```{r}
+tuberculosis <- tuberculosis %>%
+  mutate(
+    cases_per_100k = (cases / population) * 100000
+  )
+
+glimpse(tuberculosis)
+```
+
+**Notes:**
+A new variable, cases_per_100k, is created to standardize tuberculosis cases relative to population size, allowing meaningful comparisons between countries.
+
+## 4.3    Highest and Lowest Cases per 100,000
+
+**Highest**
+
+```{r}
+tuberculosis %>%
+  arrange(desc(cases_per_100k)) %>%
+  select(country, year, cases_per_100k) %>%
+  slice(1)
+```
+
+**Lowest**
+
+```{r}
+tuberculosis %>%
+  arrange(cases_per_100k) %>%
+  select(country, year, cases_per_100k) %>%
+  slice(1)
+```
+
+
+# 5.0   Data Visualization
+
+## 5.1    Total TB Cases per 100,000 Over Time (China, India, and United States)
+
+```{r}
+tb_trend <- tuberculosis %>%
+  filter(country %in% c("China", "India", "United States of America")) %>%
+  group_by(country, year) %>%
+  summarise(
+    total_cases_per_100k = sum(cases_per_100k),
+    .groups = "drop"
+  )
+
+ggplot(tb_trend,
+       aes(x = year,
+           y = total_cases_per_100k,
+           color = country)) +
+  geom_line(linewidth = 1) +
+  scale_y_log10() +
+  labs(
+    title = "Tuberculosis Cases per 100,000 Population",
+    subtitle = "China, India, and the United States",
+    x = "Year",
+    y = "Cases per 100,000 (Log Scale)",
+    color = "Country"
+  ) +
+  theme_minimal()
+```
+
+**Notes:**
+The graph illustrates the trend of tuberculosis cases per 100,000 population in China, India, and the United States of America from 1995 to 2013 using a logarithmic scale. India experienced the highest tuberculosis incidence overall, with a rapid increase in the early 2000s, peaking around 2007 before gradually stabilizing. China also showed a rapid increasing trend, with a noticeable rise after 2003 and relatively stable incidence during the later years. In contrast to this, the United States on the other hand, consistently recorded the lowest tuberculosis incidence throughout the study period, remaining well below the levels observed in China and India despite a slight increase around 2006. From this graph, it can be inferred that the burden of tuberculosis was substantially higher in India and China than in the United States during this period.
+
+## 5.2    Distribution of Cases per 100,000 Across Age Groups
+
+```{r}
+age_cases <- tuberculosis %>%
+  group_by(age) %>%
+  summarise(
+    total_cases_per_100k = sum(cases_per_100k),
+    .groups = "drop"
+  )
+
+ggplot(age_cases,
+       aes(x = age,
+           y = total_cases_per_100k)) +
+  geom_col(fill = "steelblue") +
+  scale_y_log10() +
+  labs(
+    title = "Tuberculosis Cases per 100,000 by Age Group",
+    x = "Age Group",
+    y = "Total Cases per 100,000 (Log Scale)"
+  ) +
+  theme_minimal()
+```
+
+**Notes:**
+The bar chart compares the total tuberculosis cases per 100,000 population across different age groups using a logarithmic scale. Individuals aged 25–34 years recorded the highest number of cases, followed closely by those aged 35–44 years. The 0–14 years age group had the lowest incidence, while the remaining adult age groups showed relatively similar tuberculosis burdens. Overall, tuberculosis cases were more common among adults than children.
+
+## 5.3    Relationship Between Population and Cases per 100,000 (Year 2000)
+
+```{r}
+tb_2000 <- tuberculosis %>%
+  filter(year == 2000) %>%
+  group_by(country, population) %>%
+  summarise(
+    total_cases_per_100k = sum(cases_per_100k),
+    .groups = "drop"
+  )
+
+ggplot(tb_2000,
+       aes(x = population,
+           y = total_cases_per_100k)) +
+  geom_point(alpha = 0.7, color = "darkred") +
+  scale_x_log10() +
+  labs(
+    title = "Population vs Tuberculosis Cases per 100,000 (2000)",
+    x = "Population (Log Scale)",
+    y = "Cases per 100,000"
+  ) +
+  theme_minimal()
+```
+
+**Notes:**
+The scatter plot shows the relationship between population size and tuberculosis cases per 100,000 population in the year 2000. The points are widely scattered, this suggests that there is not a strong relationship between a country's population size and its tuberculosis incidence rate. Although countries with larger populations are represented, they do not consistently exhibit higher or lower tuberculosis rates. Suggesting that factors other than population size have a greater influence on tuberculosis incidence.
+
+
+# 6.0   Conclusion
+
+  From the results of this analysis, it can be inferred that this report was successful in demonstrating the application of data wrangling, manipulation, and visualization techniques using the tidyverse package in R. The WHO tuberculosis and World Bank population datasets were imported, inspected, tidied, joined, and cleaned to produce a structured dataset suitable for analysis. Data manipulation techniques were then applied to compare tuberculosis cases by sex, calculate cases per 100,000 population, and identify countries and years with the highest and lowest incidence rates.  
+
+  Additionally, the visualizations provided more more insights in regards to the global tuberculosis trends, differences across age groups, and the relationship between population size and tuberculosis incidence. The results showed that tuberculosis burden varied considerably across countries and demographic groups, with India generally exhibiting higher incidence rates than China and the United States during the time period.
+
+  Concluding this, this assessment demonstrates the importance of tidy data principles and the tidyverse framework in preparing data for analysis and effectively communicating meaningful insights through data visualization.  
+
+
