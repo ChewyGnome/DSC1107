@@ -1,0 +1,519 @@
+---
+title: "Formative Assessment 4"
+author: "Sindayen, Lorenzo Danilo V."
+subtitle: "DSC1107 Data Mining and Wrangling"
+date: "2026-07-17"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(glmnet)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(ipred)
+library(knitr)
+library(randomForest)
+
+knitr::opts_chunk$set( 
+  fig.width = 8, 
+  fig.height = 5, 
+  echo = TRUE, 
+  warning = FALSE, 
+  message = FALSE 
+)
+```
+
+---
+
+\begin{center}
+\textit{GitHub Link:} \\
+\url{https://github.com/ChewyGnome/DSC1107}
+\end{center}
+
+---
+
+# Introduction
+
+  This assessment explores the Regression & Tree-Based Methods using the UCI Adult Income Dataset. The objective of this study is to develop predictive models that are capable of classifying whether an individual's annual income exceeds $50,000 based on demographic, educational, and employment characteristics. Additionally, for this study several supervised learning techniques will be employed to compare their effectiveness in solving a binary classification problem. 
+  
+
+# 1.0 Data Preparation
+  
+## Import Dataset
+
+```{r}
+adult_raw <- read_csv(
+  "adult.data",
+  col_names = c(
+    "age",
+    "workclass",
+    "fnlwgt",
+    "education",
+    "education_num",
+    "marital_status",
+    "occupation",
+    "relationship",
+    "race",
+    "sex",
+    "capital_gain",
+    "capital_loss",
+    "hours_per_week",
+    "native_country",
+    "income"
+  ),
+  na = "?",
+  trim_ws = TRUE
+)
+```
+
+## Display Dataset Structure
+
+```{r}
+dim(adult_raw)
+
+str(adult_raw)
+
+glimpse(adult_raw)
+```
+
+## Check Missing Values
+
+```{r}
+missing_values <- tibble(
+  Variable = names(adult_raw),
+  Missing_Values = colSums(is.na(adult_raw))
+)
+
+kable(
+  missing_values,
+  caption = "Missing Values by Variable"
+)
+```
+
+## Convert Categorical Variables into Factors\
+
+```{r}
+adult_raw <- adult_raw %>%
+  mutate(
+    across(
+      where(is.character),
+      as.factor
+    )
+  ) %>%
+  drop_na()
+
+glimpse(adult_raw)
+```
+
+## Summary Statistics
+
+```{r}
+summary(adult_raw)
+```
+
+## Income Distribution
+
+```{r}
+adult_raw %>%
+  count(income) %>%
+  kable(
+    caption = "Income Class Distribution"
+  )
+```
+
+```{r}
+ggplot(adult_raw,
+       aes(x = income,
+           fill = income)) +
+  geom_bar() +
+  labs(
+    title = "Distribution of Income Classes",
+    x = "Income",
+    y = "Frequency"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "none"
+  )
+```
+
+
+# 2.0 Logistic Regression
+
+## Fit Logistic Regression Model
+
+```{r}
+log_model <- glm(
+  income ~ .,
+  data = adult_raw,
+  family = binomial
+)
+
+summary(log_model)
+```
+
+**Notes:**
+The regression output provides the estimated coefficients, standard errors, z-values, and p-values for each predictor variable. These statistics are used to determine which variables significantly influence income classification.
+
+## Identify Significant Predictors
+
+```{r}
+significant_predictors <-
+  coef(summary(log_model)) %>%
+  as.data.frame() %>%
+  rownames_to_column("Variable") %>%
+  filter(`Pr(>|z|)` < 0.05)
+
+kable(
+  significant_predictors,
+  digits = 4,
+  caption = "Statistically Significant Predictors"
+)
+```
+
+**Notes:**
+The logistic regression model identified several statistically significant predictors of income such as age, education level, marital status, occupation, sex, capital gain, capital loss, hours worked per week, and selected native country categories. Higher educational attainment, being married, working in professional or managerial occupations, greater capital gains, and longer working hours generally increased the likelihood of earning more than $50,000, while lower education levels and certain occupations or native country categories were associated with lower income probabilities. Overall, these results indicate that demographic, educational, and employment-related factors play a significant role in predicting annual income.
+
+## Compute Classification Accuracy (0.5 Threshold)
+
+```{r}
+predicted_probability <- predict(
+  log_model,
+  type = "response"
+)
+
+predicted_class <- ifelse(
+  predicted_probability >= 0.5,
+  ">50K",
+  "<=50K"
+)
+
+confusion_matrix <- table(
+  Actual = adult_raw$income,
+  Predicted = predicted_class
+)
+
+confusion_matrix
+
+accuracy <- mean(
+  predicted_class == adult_raw$income
+)
+
+accuracy
+```
+
+**Notes:**
+Using a classification threshold of 0.50, the logistic regression model achieved an overall classification accuracy of approximately 84.98%. This results suggests that it has an accurate representation for the classification of most individuals in the Adult Income dataset. From the confusion matrix, the model correctly predicted 21,045 individuals earning $50,000 or less and 4,587 individuals earning more than $50,000, while misclassifying 1,609 lower-income and 2,921 higher-income individuals.   
+
+
+# 3.0 Regression in High Dimensions
+
+## Convert Categorical Variables into Dummy Variables
+
+```{r}
+adult_hd <- model.matrix(income ~ ., data = adult_raw)[, -1] %>%
+  as.data.frame()
+
+adult_hd$income <- adult_raw$income
+
+head(adult_hd)
+```
+
+## Report the Number of Observations and Predictors
+
+```{r}
+n <- nrow(adult_hd)
+p <- ncol(adult_hd) - 1
+
+dimension_hd <- tibble(
+  Observations = n,
+  Predictors = p
+)
+
+kable(
+  dimension_hd,
+  caption = "Dimensions of the High-Dimensional Dataset"
+)
+```
+
+**Notes:**
+After converting the categorical variables into dummy variables, the transformed dataset (adult_hd) contains 30,162 observations and 97 predictor variables. Although the number of observations remains unchanged after data cleaning, the number of predictors increases substantially because each category of a categorical variable is represented by its own binary (0 or 1) dummy variable. This expanded feature set provides more detailed information for modeling but also increases the overall complexity of the dataset.
+
+**Why is this Dataset High-Dimensional?**
+
+The dataset is considered high-dimensional because one-hot encoding expanded the original categorical variables into numerous dummy variables, increasing the total number of predictors from the original set of features to 97 predictor variables. As shown in the transformed dataset, variables such as workclass, education, occupation, marital_status, and native_country have been split into multiple binary columns, resulting in a much larger feature space.
+
+**Issues Encountered**
+
+The standard logistic regression model was successfully fitted using the high-dimensional datase. Despite this, several challenges were observed for example; the large number of dummy variables increases the likelihood of multicollinearity, where some predictors become highly correlated, leading to unstable coefficient estimates thus making the model more difficult to interpret. Additionally, the increased model complexity raises the risk of overfitting, meaning the model may fit the training data very well but perform less effectively on any new, unseen data.
+
+
+# 4.0 Ridge and Lasso Regression
+
+## Prepare Data for Regularization
+
+```{r}
+x <- model.matrix(income ~ ., adult_raw)[, -1]
+
+y <- ifelse(
+  adult_raw$income == ">50K",
+  1,
+  0
+)
+```
+
+## Ridge Regression with Cross-Validation
+
+```{r}
+set.seed(123)
+
+ridge_cv <- cv.glmnet(
+  x,
+  y,
+  family = "binomial",
+  alpha = 0
+)
+
+plot(ridge_cv)
+
+ridge_cv$lambda.min
+```
+
+**Notes::**
+The cross-validation results identified an optimal lambda value of approximately 0.0193, this minimizes the binomial deviance and provides the best balance between model fit and regularization. The Ridge regression model retains all 96 predictor variables while shrinking their coefficient values, which helps in reducing the effects of multicollinearity without eliminating any features. 
+
+## Lasso Regression with Cross-Validation
+
+```{r}
+set.seed(123)
+
+lasso_cv <- cv.glmnet(
+  x,
+  y,
+  family = "binomial",
+  alpha = 1
+)
+
+plot(lasso_cv)
+
+lasso_cv$lambda.min
+```
+
+**Notes:*
+The Lasso regression model selected an optimal lambda value of approximately 0.000455 through cross-validation, this corresponds with the lowest binomial deviance. Unlike Ridge regression, Lasso applies coefficient shrinkage while simultaneously performing feature selection by shrinking less important coefficients to exactly zero. This produces a simpler and more interpretable model that focuses on the predictors contributing most to income classification.
+
+## Variables Retained by the Lasso Model
+
+```{r}
+lasso_coef <- coef(
+  lasso_cv,
+  s = "lambda.min"
+)
+
+selected_variables <-
+  rownames(lasso_coef)[
+    lasso_coef[, 1] != 0
+  ]
+
+selected_variables
+```
+
+**Notes:**
+The Lasso model retained a subset of predictors with non-zero coefficients, including important demographic, educational, occupational, relationship, financial, and native country variables. Variables whose coefficients were reduced to zero were automatically excluded from the final model as they did not have a significant impact for the model. 
+
+## Comparison of Ridge and Lasso
+Both Ridge and Lasso regression address the multicollinearity observed in Part 3 by applying regularization, which shrinks the regression coefficients and improves model stability. Ridge regression retains all predictor variables by reducing the magnitude of their coefficients, whereas Lasso regression simplifies the model by shrinking less important coefficients to zero, effectively removing unnecessary predictors. Consequently, Ridge is better suited when all variables may contribute to the model, while Lasso produces a less complex and more interpretable model through automatic feature selection.
+
+
+# 5.0 Decision Trees
+
+## Growing a Decision Tree
+
+```{r}
+tree_model <- rpart(
+  income ~ .,
+  data = adult_raw,
+  method = "class"
+)
+
+rpart.plot(
+  tree_model,
+  type = 2,
+  extra = 104,
+  fallen.leaves = TRUE
+)
+```
+
+## Tree Pruning using Cross-Validation
+
+```{r}
+printcp(tree_model)
+
+plotcp(tree_model)
+
+best_cp <- tree_model$cptable[
+  which.min(tree_model$cptable[, "xerror"]),
+  "CP"
+]
+
+pruned_tree <- prune(
+  tree_model,
+  cp = best_cp
+)
+
+rpart.plot(
+  pruned_tree,
+  type = 2,
+  extra = 104,
+  fallen.leaves = TRUE
+)
+```
+
+**Notes:**
+The cross-validation results show that the decision tree's relative error decreased as additional splits were made, this suggests that the more refined tree improved the predictive performance. The lowest cross-validation error occurred at a complexity parameter (CP) of approximately 0.019, this suggests that this is the optimal pruning point. Meaning the pruning removed the unnecessary complexity while maintaining the tree's ability to classify income accurately, helping reduce the risk of overfitting.
+
+## Compare Performance Before and After Pruning
+
+```{r}
+tree_pred <- predict(
+  tree_model,
+  adult_raw,
+  type = "class"
+)
+
+pruned_pred <- predict(
+  pruned_tree,
+  adult_raw,
+  type = "class"
+)
+
+tree_accuracy <- mean(tree_pred == adult_raw$income)
+
+pruned_accuracy <- mean(pruned_pred == adult_raw$income)
+
+comparison <- tibble(
+  Model = c("Original Tree", "Pruned Tree"),
+  Accuracy = c(tree_accuracy, pruned_accuracy)
+)
+
+kable(
+  comparison,
+  digits = 4,
+  caption = "Decision Tree Performance Comparison"
+)
+```
+
+## Interpretation
+Based on the final decision tree, the most important predictors are relationship, capital_gain, and education, as these variables were selected for the tree's splitting decisions. The root node first splits on relationship, demonstrating that it provides the greatest reduction in classification error, while capital_gain and education further separate individuals into income groups. These results indicate that an individual's family relationship status, investment gains, and educational attainment are the strongest factors influencing whether annual income exceeds $50,000.
+
+
+# 6.0 Bagging
+
+## Implement Bagging
+
+```{r}
+set.seed(123)
+
+bag_model <- randomForest(
+  income ~ .,
+  data = adult_raw,
+  mtry = ncol(adult_raw) - 1,
+  importance = TRUE
+)
+
+bag_model
+```
+
+## Compare Bagging with a Single Decision Tree
+
+```{r}
+bag_pred <- predict(
+  bag_model,
+  adult_raw
+)
+
+bag_accuracy <- mean(
+  bag_pred == adult_raw$income
+)
+
+comparison_models <- tibble(
+  Model = c("Decision Tree", "Bagging"),
+  Accuracy = c(tree_accuracy, bag_accuracy)
+)
+
+kable(
+  comparison_models,
+  digits = 4,
+  caption = "Decision Tree vs Bagging"
+)
+```
+
+**Notes:**
+The single decision tree achieved an accuracy of 84.11%, while the bagging model achieved 100.00% accuracy on the training dataset. This substantial improvement demonstrates that combining predictions from multiple decision trees produces a more accurate and stable model than relying on a single tree.
+
+
+## Why Bagging Improves Model Performance
+Bagging improves model performance by training many decision trees on different bootstrap samples of the dataset and combining their predictions through majority voting. This approach reduces the variance of individual trees, making the model more stable and less sensitive to random fluctuations in the training data. Due to this, bagging generally produces higher predictive accuracy and better generalization than a single decision tree.  
+
+
+# Conclusion
+
+  In this assessment the application of regression and tree-based methods was properly represented using the UCI Adult Income dataset in R with the tidyverse ecosystem. Logistic regression identified important predictors of income, while Ridge and Lasso regression addressed issues related to multicollinearity and model complexity through regularization. 
+
+  In addition to this, the Decision tree analysis provided an interpretable classification model, with relationship, capital_gain, and education identified as the most influential predictors. The cross-validation also showed that pruning simplified the tree without reducing its predictive accuracy, resulting in a more efficient and interpretable model. Furthermore, the bagging model achieved the highest predictive performance by combining multiple decision trees, demonstrating the effectiveness of ensemble learning in reducing model variance and improving classification accuracy.  
+
+  Concluding this, this assessment was successful in highlighting the different machine learning techniques and how they offer unique strengths for different classification problems.  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
