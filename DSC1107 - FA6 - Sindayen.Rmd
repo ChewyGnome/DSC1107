@@ -1,0 +1,452 @@
+---
+title: "Formative Assessment 6"
+author: "Sindayen, Lorenzo Danilo V."
+subtitle: "DSC1107 Data Mining and Wrangling"
+date: "2026-07-20"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(caret)
+library(keras)
+library(knitr)
+library(keras3)
+
+knitr::opts_chunk$set(
+  fig.width = 8,
+  fig.height = 5,
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE
+)
+```
+
+---
+
+\begin{center}
+\textit{GitHub Link:} \\
+\url{https://github.com/ChewyGnome/DSC1107}
+\end{center}
+
+---
+
+# Introduction
+  The coverage of this assessment explores the application of Neural Networks for binary classification using the Telco Customer Churn dataset. Furthermore, the assessment covers the complete machine learning workflow, including data preparation, exploratory data analysis, neural network construction, model training, evaluation, and model tuning to improve predictive performance. The objective of this study is to develop a neural network model capable of predicting whether a customer is likely to churn based on demographic information, account details, and subscribed services. 
+  
+
+# A. Data Preparation
+
+## Import Dataset
+
+```{r}
+telco_raw <- read_csv(
+  "WA_Fn-UseC_-Telco-Customer-Churn.csv"
+)
+```
+
+
+## Display the First 10 Observations
+
+```{r}
+head(telco_raw, 10)
+```
+
+**Notes:**
+Each row represents an individual customer, while the columns contain demographic information, subscribed services, billing details, and the customer's churn status.
+
+## Display Dataset Structure
+
+```{r}
+dim(telco_raw)
+
+str(telco_raw)
+
+glimpse(telco_raw)
+```
+
+## Identify the Target Variable
+
+```{r}
+table(telco_raw$Churn)
+```
+
+**Notes:**
+The target variable **Churn** consists of two classes: **No** (5,174 customers) and **Yes** (1,869 customers). This means that a larger proportion of customers remained with the company than those who churned, suggesting that a moderate class imbalance should be considered when evaluating the neural network's predictive performance.
+
+## Check Missing Values
+
+```{r}
+missing_values <- tibble(
+  Variable = names(telco_raw),
+  Missing_Values = colSums(is.na(telco_raw))
+)
+
+kable(
+  missing_values,
+  caption = "Missing Values by Variable"
+)
+```
+
+**Notes:**
+The missing value analysis shows that all variables are complete except for TotalCharges, which contains 11 missing values. Since missing values can negatively affect the performance and reliability of a neural network model, these records must be handled before proceeding with model training.
+
+## Handle Missing Values
+
+```{r}
+telco_clean <- telco_raw %>%
+  drop_na()
+
+missing_after_cleaning <- tibble(
+  Variable = names(telco_clean),
+  Missing_Values = colSums(is.na(telco_clean))
+)
+
+kable(
+  missing_after_cleaning,
+  caption = "Missing Values After Data Cleaning"
+)
+```
+
+**Notes:**
+The missing values were removed using drop_na(), resulting in a cleaned dataset with no remaining missing values across all variables. This adjustment ensures that the dataset is complete and suitable for subsequent preprocessing, training, and evaluation of the neural network model.
+
+## Encode Categorical Variables
+
+```{r}
+telco_clean <- telco_clean %>%
+  mutate(
+    across(where(is.character), as.factor)
+  )
+
+glimpse(telco_clean)
+```
+
+**Notes:**
+All character variables were converted into factor data types to prepare the dataset for machine learning preprocessing and modeling. After encoding, the cleaned dataset contains 7,032 observations and 21 variables, with categorical features properly represented as factors while numerical variables remain unchanged for further normalization.
+
+## Normalize Numerical Variables
+
+```{r}
+numeric_columns <- c(
+  "tenure",
+  "MonthlyCharges",
+  "TotalCharges"
+)
+
+telco_clean[numeric_columns] <-
+  scale(telco_clean[numeric_columns])
+
+summary(telco_clean[numeric_columns])
+```
+
+**Notes:**
+The numerical variables tenure, MonthlyCharges, and TotalCharges were standardized using z-score normalization, resulting in each variable having a mean close to 0 and a standard deviation of 1.
+
+
+# B. Exploratory Data Analysis
+
+## Churn Distribution
+
+```{r}
+ggplot(telco_clean, aes(x = Churn, fill = Churn)) +
+  geom_bar() +
+  labs(
+    title = "Distribution of Customer Churn",
+    x = "Churn Status",
+    y = "Number of Customers"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+**Notes:**
+The bar chart shows that the majority of customers did not churn, with approximately 5,174 customers remaining compared to 1,869 customers who churned. This suggests a moderate class imbalance in the dataset, where the "No" class is more prevalent than the "Yes" class. While the imbalance is not severe, it is still a consideration when evaluating the neural network's predictive performance.
+
+## Monthly Charges vs Churn
+
+```{r}
+ggplot(telco_clean,
+       aes(x = Churn,
+           y = MonthlyCharges,
+           fill = Churn)) +
+  geom_boxplot() +
+  labs(
+    title = "Monthly Charges by Churn Status",
+    x = "Churn Status",
+    y = "Monthly Charges"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+**Notes:**
+The boxplot shows that customers who churned generally have higher standardized monthly charges than those who remained with the company. The median monthly charge for customers who churned is noticeably higher, suggesting that customers with more expensive monthly plans are more likely to discontinue the service.
+
+## Variables Influencing Churn
+
+
+Based on the exploratory data analysis, the following variables have an influece over customer churn:
+
+MonthlyCharges – Customers with higher monthly charges tend to exhibit higher churn rates, suggesting that increased service costs may encourage customers to discontinue their subscriptions.
+
+Contract – Customers with month-to-month contracts are generally more likely to churn than those with one-year or two-year contracts, as shorter contract commitments provide greater flexibility to switch service providers.
+
+
+# C. Neural Network Model Construction
+
+## Prepare the Dataset for Neural Network
+
+```{r}
+telco_nn <- telco_clean %>%
+  select(-customerID)
+
+dummy_data <- model.matrix(Churn ~ ., data = telco_nn)[, -1]
+
+x <- as.matrix(dummy_data)
+
+y <- ifelse(telco_clean$Churn == "Yes", 1, 0)
+
+dim(x)
+length(y)
+```
+
+**Notes:**
+The dataset was prepared for neural network modeling by removing the customerID variable, as it serves only as a unique identifier and does not contribute to predicting customer churn. Categorical predictor variables were converted into numerical dummy variables, resulting in a feature matrix with 7,032 observations and 30 input features, while the target variable Churn was encoded as 0 for customers who remained and 1 for customers who churned.
+
+## Construct the Neural Network
+
+```{r}
+model <- keras_model_sequential() %>%
+  layer_dense(
+    units = 16,
+    activation = "relu",
+    input_shape = c(ncol(x))
+  ) %>%
+  layer_dense(
+    units = 1,
+    activation = "sigmoid"
+  )
+
+model %>% compile(
+  optimizer = optimizer_adam(),
+  loss = "binary_crossentropy",
+  metrics = "accuracy"
+)
+
+summary(model)
+```
+
+**Notes:**
+A feedforward neural network with one hidden layer was constructed for binary classification. The network accepts 30 input features, followed by a hidden layer consisting of 16 neurons that uses the ReLU (Rectified Linear Unit) activation function to learn complex nonlinear patterns within the data. The output layer contains a single neuron with a Sigmoid activation function, which in turn produces a probability between 0 and 1 identifying whether a customer is likely to churn.
+
+The model was compiled using the Adam optimizer and the Binary Cross-Entropy loss function. Adam was selected because it efficiently updates the model's weights during training, while Binary Cross-Entropy is the standard loss function for binary classification problems such as customer churn prediction. Model performance will be measured using accuracy during the training process.
+
+
+# D. Model Training
+
+## Split the Dataset
+
+```{r}
+set.seed(123)
+
+train_index <- createDataPartition(
+  y,
+  p = 0.80,
+  list = FALSE
+)
+
+x_train <- x[train_index, ]
+x_test  <- x[-train_index, ]
+
+y_train <- y[train_index]
+y_test  <- y[-train_index]
+
+dim(x_train)
+dim(x_test)
+```
+
+**Notes:**
+The dataset was divided into 80% training data and 20% testing data using stratified sampling. This split allows the neural network to learn patterns from the training set while reserving unseen data for evaluating the model's predictive performance.
+
+## Train the Neural Network
+
+```{r}
+history <- model %>% fit(
+  x_train,
+  y_train,
+  epochs = 20,
+  batch_size = 32,
+  validation_split = 0.20,
+  verbose = 1
+)
+```
+
+## Display Training Results
+
+```{r}
+history
+```
+
+## Plot Training History
+
+```{r}
+plot(history)
+```
+
+**Notes:**
+The neural network was trained for 20 epochs using the Adam optimizer with a batch size of 32. Throughout the training process, the Binary Cross-Entropy loss steadily decreased while the accuracy improved, this suggests that the model successfully learned meaningful patterns from the customer data.
+
+
+# E. Model Evaluation
+
+## Predict Customer Churn
+
+```{r}
+predictions <- model %>%
+  predict(x_test)
+
+predicted_class <- ifelse(predictions > 0.5, 1, 0)
+```
+
+## Confusion Matrix
+
+```{r}
+confusion <- confusionMatrix(
+  factor(predicted_class),
+  factor(y_test)
+)
+
+confusion
+```
+
+## Accuracy Score
+
+```{r}
+confusion$overall["Accuracy"]
+```
+
+**Notes:**
+The neural network achieved an accuracy of 82.36%, this meant that it was quite accurate with classifying the majority of customers in the testing dataset. The confusion matrix shows that the model performed well in identifying customers who did not churn (959 correctly classified), but it was less effective at detecting customers who churned, correctly identifying 199 churn cases while misclassifying 164 as non-churn. Overall, the model demonstrates good predictive performance; however, its lower ability to identify churning customers suggests that further tuning or techniques to address the class imbalance could improve its performance.
+
+
+# F. Model Improvement / Tuning (3 points)
+
+## Tune the Neural Network
+
+```{r}
+tuned_model <- keras_model_sequential() %>%
+  layer_dense(
+    units = 32,
+    activation = "relu",
+    input_shape = c(ncol(x))
+  ) %>%
+  layer_dense(
+    units = 1,
+    activation = "sigmoid"
+  )
+
+tuned_model %>% compile(
+  optimizer = optimizer_adam(),
+  loss = "binary_crossentropy",
+  metrics = "accuracy"
+)
+
+history_tuned <- tuned_model %>% fit(
+  x_train,
+  y_train,
+  epochs = 20,
+  batch_size = 32,
+  validation_split = 0.20,
+  verbose = 0
+)
+```
+
+## Evaluate the Tuned Model
+
+```{r}
+tuned_predictions <- tuned_model %>%
+  predict(x_test)
+
+tuned_class <- ifelse(tuned_predictions > 0.5, 1, 0)
+
+tuned_confusion <- confusionMatrix(
+  factor(tuned_class),
+  factor(y_test)
+)
+
+tuned_confusion
+
+tuned_confusion$overall["Accuracy"]
+```
+
+## Compare Performance
+
+```{r}
+comparison <- data.frame(
+  Model = c("Original Model", "Tuned Model"),
+  Hidden_Neurons = c(16, 32),
+  Accuracy = c(
+    as.numeric(confusion$overall["Accuracy"]),
+    as.numeric(tuned_confusion$overall["Accuracy"])
+  )
+)
+
+kable(
+  comparison,
+  caption = "Comparison of Model Performance Before and After Tuning"
+)
+```
+
+## Comparison
+To improve the neural network, the number of hidden neurons was increased from 16 to 32, whilst keeping the remaining model parameters unchanged. After tuning, the model's accuracy had a slight increase from 82.36% to 82.65%, this suggests that the additional hidden neurons enabled the network to learn more complex patterns and achieve a modest improvement in predictive performance. Although the increase in accuracy was relatively small, the tuned model demonstrated a better classification performance than the original model, making it the preferred configuration for this dataset.
+
+
+# Conclusion
+  The findings of this assessment demonstrate that the neural network model was effective in predicting customer churn using the Telco Customer Churn dataset. The exploratory data analysis revealed a moderate class imbalance, with more customers remaining than churning, and identified MonthlyCharges and Contract as two variables that may significantly influence customer churn. These observations provided valuable insights into the characteristics of customers who are more likely to discontinue the service.
+
+  Additionally, the constructed neural network achieved an initial accuracy of 82.36%, suggesting a strong classification performance on the testing dataset. After increasing the number of hidden neurons from 16 to 32, the model's accuracy improved slightly to 82.65%, demonstrating that tuning the network architecture can enhance predictive performance, albeit modestly.
+
+  Concluding this, this assessment again highlights the importance of proper data preprocessing, feature preparation, and model tuning for the development of an an effective neural network model.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
