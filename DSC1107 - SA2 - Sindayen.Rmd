@@ -1,0 +1,842 @@
+---
+title: "Summative Assessment 2"
+author: "Sindayen, Lorenzo Danilo V."
+subtitle: "DSC1107 Data Mining and Wrangling"
+date: "2026-07-20"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(caret)
+library(glmnet)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(gbm)
+library(pROC)
+library(corrplot)
+library(knitr)
+library(janitor)
+
+knitr::opts_chunk$set(
+  fig.width = 8,
+  fig.height = 5,
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE
+)
+
+set.seed(123)
+```
+
+---
+
+\begin{center}
+\textit{GitHub Link:} \\
+\url{https://github.com/ChewyGnome/DSC1107}
+\end{center}
+
+---
+
+# Part I — Machine Learning Models for Customer Churn
+
+# Introduction
+
+In this assessment, supervised machine learning techniques will be applied to predict customer churn using the Orange Telecom Churn Dataset. The objective of this study is to develop and compare regression-based and tree-based classification models that are capable of identifying customers who are likely to discontinue their telecommunications service. The model performance will then be evaluated using Accuracy, Precision, Recall, F1-score, and ROC-AUC to determine the most effective approach for customer churn prediction.
+
+
+# 1.0 Dataset Familiarization & Preparation
+
+## Import Training and Testing Datasets
+
+```{r}
+train_raw <- read_csv("churn-bigml-80.csv") %>%
+  clean_names()
+
+test_raw <- read_csv("churn-bigml-20.csv") %>%
+  clean_names()
+```
+
+## Display Dataset Dimensions
+
+```{r}
+dim(train_raw)
+
+dim(test_raw)
+```
+
+## Display Dataset Structure
+
+```{r}
+str(train_raw)
+
+glimpse(train_raw)
+
+str(test_raw)
+
+glimpse(test_raw)
+```
+
+## Summary Statistics
+
+```{r}
+summary(train_raw)
+
+summary(test_raw)
+```
+
+## Check Missing Values
+
+```{r}
+missing_train <- tibble(
+  Variable = names(train_raw),
+  Missing_Values = colSums(is.na(train_raw))
+)
+
+missing_test <- tibble(
+  Variable = names(test_raw),
+  Missing_Values = colSums(is.na(test_raw))
+)
+
+kable(
+  missing_train,
+  caption = "Training Dataset Missing Values"
+)
+
+kable(
+  missing_test,
+  caption = "Testing Dataset Missing Values"
+)
+```
+
+**Notes:**
+The missing value analysis shows that both the training and testing datasets contain no missing values across all variables. Since the datasets are complete, no additional data imputation or removal of incomplete observations is required before proceeding with data preprocessing and model development.
+
+## Remove Non-Predictive Variables
+
+```{r}
+train_clean <- train_raw %>%
+  select(-state)
+
+test_clean <- test_raw %>%
+  select(-state)
+```
+
+**Notes:**
+The state variable was removed because it served as an identifier rather than a meaningful predictor of customer churn. Excluding this variable reduces unnecessary model complexity and allows the machine learning models to focus on customer service usage and behavioral characteristics.
+
+## Convert Churn into Binary Values
+
+```{r}
+train_clean <- train_clean %>%
+  mutate(
+    churn = ifelse(churn == TRUE, 1, 0)
+  )
+
+test_clean <- test_clean %>%
+  mutate(
+    churn = ifelse(churn == TRUE, 1, 0)
+  )
+
+table(train_clean$churn)
+
+table(test_clean$churn)
+```
+
+**Notes:**
+The target variable churn was converted into binary values, where 0 represents customers who remained with the company and 1 represents customers who churned. The class distribution shows that non-churning customers outnumber churning customers in both datasets, suggesting that a moderate class imbalance that should be considered during model evaluation.
+
+## One-Hot Encode Categorical Variables
+
+```{r}
+dummy_model <- dummyVars(
+  churn ~ .,
+  data = train_clean
+)
+
+x_train <- predict(
+  dummy_model,
+  newdata = train_clean
+) %>%
+  as.data.frame()
+
+x_test <- predict(
+  dummy_model,
+  newdata = test_clean
+) %>%
+  as.data.frame()
+
+train_processed <- cbind(
+  churn = train_clean$churn,
+  x_train
+)
+
+test_processed <- cbind(
+  churn = test_clean$churn,
+  x_test
+)
+```
+
+## Display Processed Dataset
+
+```{r}
+glimpse(train_processed)
+
+glimpse(test_processed)
+```
+
+
+# 2.0 Exploratory Data Analysis
+
+## Churn Rate Analysis
+
+```{r}
+train_clean %>%
+  count(churn) %>%
+  mutate(
+    Percentage = round(n / sum(n) * 100, 2)
+  ) %>%
+  kable(
+    caption = "Customer Churn Distribution"
+  )
+```
+
+```{r}
+ggplot(train_clean,
+       aes(x = factor(churn),
+           fill = factor(churn))) +
+  geom_bar() +
+  labs(
+    title = "Customer Churn Distribution",
+    x = "Churn",
+    y = "Number of Customers"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "none"
+  )
+```
+
+**Notes:**
+From the results it is shown that 85.45% of customers remained with the company, while only 14.55% churned. This meant that customer churn is relatively uncommon in the dataset, which results in a relatively skewed classification problem.  
+
+## Distribution of Important Variables
+
+```{r}
+ggplot(train_clean,
+       aes(x = total_day_minutes)) +
+  geom_histogram(
+    bins = 30,
+    fill = "steelblue",
+    color = "black"
+  ) +
+  labs(
+    title = "Distribution of Total Day Minutes",
+    x = "Total Day Minutes",
+    y = "Frequency"
+  ) +
+  theme_minimal()
+```
+
+**Notes:**
+The distribution of total day minutes is shown to be bell-shaped, with most customers using between 150 and 220 minutes during the day. Aside from a few customers also exhibited unusually low or high usage, suggesting the presence of some extreme observations from both ends of the low and high minutes. In addition to this
+
+```{r}
+ggplot(train_clean,
+       aes(x = customer_service_calls)) +
+  geom_histogram(
+    bins = 10,
+    fill = "tomato",
+    color = "black"
+  ) +
+  labs(
+    title = "Distribution of Customer Service Calls",
+    x = "Customer Service Calls",
+    y = "Frequency"
+  ) +
+  theme_minimal()
+```
+
+**Notes:**
+Most customers contacted customer service between 0 and 3 times, while only a small number made frequent service calls. The distribution is positively skewed, indicating that repeated customer service interactions are relatively uncommon.
+
+## Boxplots by Churn Status
+
+```{r}
+ggplot(train_clean,
+       aes(x = factor(churn),
+           y = total_day_minutes,
+           fill = factor(churn))) +
+  geom_boxplot() +
+  labs(
+    title = "Total Day Minutes by Churn Status",
+    x = "Churn",
+    y = "Total Day Minutes"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "none"
+  )
+```
+
+**Notes:**
+Customers who churned generally recorded higher total day minutes than customers who remained with the company. This results suggests that heavier daytime usage may be associated with an increased likelihood of customer churn.  
+
+```{r}
+ggplot(train_clean,
+       aes(x = factor(churn),
+           y = customer_service_calls,
+           fill = factor(churn))) +
+  geom_boxplot() +
+  labs(
+    title = "Customer Service Calls by Churn Status",
+    x = "Churn",
+    y = "Customer Service Calls"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "none"
+  )
+```
+
+**Notes:**
+Customers who churned tended to make more customer service calls than non-churning customers, with a higher median and greater variability. This result suggests that frequent interactions with customer support may possibly be an indicator of customer dissatisfaction.  
+
+## Correlation Analysis
+
+```{r}
+numeric_data <- train_clean %>%
+  select(where(is.numeric))
+
+cor_matrix <- cor(numeric_data)
+
+corrplot(
+  cor_matrix,
+  method = "color",
+  type = "upper",
+  tl.cex = 0.7
+)
+```
+
+**Notes:**
+The correlation heatmap shows strong positive correlations between usage variables and their corresponding charges, which is expected since charges are calculated directly from usage. Most other predictor variables exhibit relatively weak correlations, suggesting limited multicollinearity among the remaining features.
+
+## Class Imbalance Examination
+
+```{r}
+prop.table(table(train_clean$churn)) * 100
+```
+
+**Notes:**
+The class distribution confirms that 85.45% of customers did not churn, while 14.55% did. Although the imbalance is moderate, evaluation metrics such as Precision, Recall, F1-score, and ROC-AUC will provide a more reliable assessment of model performance than accuracy alone.
+
+
+# 3.0 Modeling and Comparison
+
+# Regression-Based Models
+
+## Model 1: Logistic Regression
+
+## Model Construction
+
+```{r}
+log_model <- glm(
+  churn ~ .,
+  data = train_processed,
+  family = binomial
+)
+
+summary(log_model)
+```
+
+**Notes:**
+Logistic Regression was selected because it is a widely used baseline classification model for binary outcomes such as customer churn. The model estimates the probability that a customer will churn based on the available predictor variables.
+
+## Predict on the Testing Dataset
+
+```{r}
+log_prob <- predict(
+  log_model,
+  newdata = test_processed,
+  type = "response"
+)
+
+log_pred <- ifelse(log_prob >= 0.5, 1, 0)
+```
+
+**Notes:**
+The trained logistic regression model is applied to the testing dataset to estimate the probability of customer churn. Customers with predicted probabilities greater than or equal to 0.50 are classified as churners.
+
+## Confusion Matrix
+
+```{r}
+confusionMatrix(
+  factor(log_pred),
+  factor(test_processed$churn),
+  positive = "1"
+)
+```
+
+**Notes:**
+The confusion matrix was selected as it needed to summarize the classification performance by comparing the predicted and actual churn outcomes. Additionally it also provides the basis for calculating several evaluation metrics, including Accuracy, Precision, Recall, and F1-score.  
+
+## ROC Curve and AUC
+
+```{r}
+log_roc <- roc(
+  test_processed$churn,
+  log_prob
+)
+
+plot(
+  log_roc,
+  main = "Logistic Regression ROC Curve",
+  col = "blue"
+)
+
+auc(log_roc)
+```
+
+**Notes:**
+The ROC curve illustrates the trade-off between the true positive rate and false positive rate across different classification thresholds. Furthermore, the Area Under the Curve (AUC) also measures the model's overall ability to distinguish between customers who churn and those who do not. Due to this both of models were selected for this study. 
+
+## Variable Importance (Coefficients)
+
+```{r}
+coef(summary(log_model)) %>%
+  as.data.frame() %>%
+  arrange(desc(abs(Estimate))) %>%
+  head(10) %>%
+  kable(
+    caption = "Top Logistic Regression Coefficients"
+  )
+```
+
+**Notes:**
+The regression coefficients indicate the influence of each predictor on the likelihood of customer churn. Variables with larger absolute coefficient values generally have a stronger effect on the model's predictions.
+
+
+## Model 2: Ridge Regression
+
+## Model Construction
+  
+```{r}
+x_train <- model.matrix(
+  churn ~ .,
+  train_processed
+)[,-1]
+
+y_train <- train_processed$churn
+
+x_test <- model.matrix(
+  churn ~ .,
+  test_processed
+)[,-1]
+
+y_test <- test_processed$churn
+```
+
+```{r}
+ridge_model <- cv.glmnet(
+  x_train,
+  y_train,
+  alpha = 0,
+  family = "binomial"
+)
+
+plot(ridge_model)
+```
+  
+**Notes:**
+Ridge Regression was selected because it directly addresses the multicollinearity through L2 regularization, which makes it suitable for datasets with multiple correlated predictors.  
+  
+## Predictions
+
+```{r}
+ridge_prob <- predict(
+  ridge_model,
+  s = "lambda.min",
+  newx = x_test,
+  type = "response"
+)
+
+ridge_pred <- ifelse(
+  ridge_prob > 0.5,
+  1,
+  0
+)
+```
+
+**Notes:**
+The trained Ridge Regression model generates the probability that each customer will churn using the unseen testing dataset. These probabilities are then converted into binary class predictions using a threshold of 0.50, allowing the model's classification performance to be evaluated.  
+  
+## Confusion Matrix
+
+```{r}
+confusionMatrix(
+  factor(ridge_pred),
+  factor(y_test),
+  positive = "1"
+)
+```
+
+**Notes:**
+The confusion matrix summarizes the Ridge Regression model's ability to correctly classify customers as churners or non-churners. Performance metrics such as Accuracy, Precision, Recall, and F1-score provide a comprehensive assessment of the model's predictive capability, particularly in the presence of class imbalance.
+  
+## ROC Curve
+
+```{r}
+ridge_roc <- roc(
+  y_test,
+  as.vector(ridge_prob)
+)
+
+plot(
+  ridge_roc,
+  main = "Ridge Regression ROC Curve",
+  col = "red"
+)
+
+auc(ridge_roc)
+```
+  
+**Notes:**
+The ROC curve illustrates the trade-off between the true positive rate and false positive rate across different classification thresholds.
+  
+## Most Important Coefficients
+
+```{r}
+coef(
+  ridge_model,
+  s = "lambda.min"
+) %>%
+  as.matrix() %>%
+  as.data.frame() %>%
+  head(15) %>%
+  kable(
+    caption = "Ridge Regression Coefficients"
+  )
+```
+
+**Notes:**
+The Ridge Regression coefficient results suggests that the contribution of each predictor after the regularization penalty has been applied. Unlike standard logistic regression, Ridge Regression retains all predictor variables while shrinking less important coefficients toward zero, resulting in a more stable and robust model without completely eliminating variables.  
+
+
+# Model 3: Tree-based Models
+
+## Decision Tree
+
+## Model Construction
+
+```{r}
+tree_model <- rpart(
+  churn ~ .,
+  data = train_processed,
+  method = "class"
+)
+
+rpart.plot(tree_model)
+```
+
+**Notes:**
+The decision tree was selected because it is effective at producing simple and interpretable classification rules that clearly show how customer characteristics influence churn predictions. The model was trained using the provided training dataset and evaluated on the separate testing dataset, allowing its performance to be assessed on unseen data. The resulting tree highlights variables such as total_day_minutes, customer_service_calls, and international_plan as the primary decision points for classifying customer churn.  
+
+## Predictions
+
+```{r}
+tree_pred <- predict(
+  tree_model,
+  newdata = test_processed,
+  type = "class"
+)
+```
+
+**Notes:**
+Predictions on the testing dataset were generated to evaluate how well the Decision Tree generalizes beyond the training data. Using an independent test set provides a fair assessment of the model's predictive performance and helps determine its ability to classify new customer records accurately.
+
+## Confusion Matrix
+
+```{r}
+confusionMatrix(
+  factor(tree_pred),
+  factor(test_processed$churn),
+  positive = "1"
+)
+```
+
+**Notes:**
+The confusion matrix was selected because it summarizes the model's classification performance through Accuracy, Precision, Recall, and F1-score. The Decision Tree achieved an Accuracy of 95.65%, Precision of 89.29%, and Recall of 78.95%, indicating strong overall performance while successfully identifying most customers who churned. These results demonstrate that the model performs substantially better than the baseline classification rate.
+
+## ROC Curve
+
+```{r}
+tree_prob <- predict(
+  tree_model,
+  newdata = test_processed,
+  type = "prob"
+)[,2]
+
+tree_roc <- roc(
+  test_processed$churn,
+  tree_prob
+)
+
+plot(
+  tree_roc,
+  main = "Decision Tree ROC Curve",
+  col = "darkgreen"
+)
+
+auc(tree_roc)
+```
+
+**Notes:**
+The ROC curve was selected because it evaluates the model across all possible classification thresholds instead of relying on a single cutoff value. The Decision Tree achieved an ROC-AUC of 0.8946, this shows that it has an effective ability to distinguish between customers who churn and those who remain with the company.
+
+## Variable Importance
+
+```{r}
+tree_model$variable.importance %>%
+  sort(decreasing = TRUE) %>%
+  head(10) %>%
+  kable(
+    caption = "Decision Tree Variable Importance"
+  )
+```
+
+**Notes:**
+The variable importance results identify total_day_minutes, total_day_charge, and customer_service_calls as the strongest predictors of customer churn. This suggests that customer usage patterns and interactions with customer support have the greatest influence on the Decision Tree's classification decisions.
+
+# Model 4: Random Forest
+
+## Model Construction
+
+```{r}
+rf_model <- randomForest(
+  factor(churn) ~ .,
+  data = train_processed,
+  ntree = 500,
+  importance = TRUE
+)
+
+rf_model
+```
+
+**Notes:**
+Random Forest was selected because it combines multiple Decision Trees to improve prediction accuracy while reducing overfitting. The model was trained using 500 decision trees, and its low out-of-bag error rate of 4.69% indicates good generalization performance before testing on unseen data.
+
+## Predictions
+
+```{r}
+rf_pred <- predict(
+  rf_model,
+  newdata = test_processed,
+  type = "class"
+)
+```
+
+**Notes:**
+Predictions were generated using the testing dataset to evaluate the Random Forest model on new customer records. This ensures that the reported performance reflects the model's ability to generalize rather than simply memorizing the training data.
+
+## Confusion Matrix
+
+```{r}
+confusionMatrix(
+  rf_pred,
+  factor(test_processed$churn),
+  positive = "1"
+)
+```
+
+**Notes:**
+The confusion matrix was selected because it provides a comprehensive evaluation of the Random Forest classifier through Accuracy, Precision, Recall, and F1-score. The model achieved an Accuracy of 95.65%, Precision of 94.59%, and Recall of 73.68%, demonstrating excellent overall predictive performance while maintaining a very low false positive rate.
+
+## ROC Curve
+
+```{r}
+rf_prob <- predict(
+  rf_model,
+  newdata = test_processed,
+  type = "prob"
+)[,2]
+
+rf_roc <- roc(
+  test_processed$churn,
+  rf_prob
+)
+
+plot(
+  rf_roc,
+  main = "Random Forest ROC Curve",
+  col = "blue"
+)
+
+auc(rf_roc)
+```
+
+**Notes:**
+The ROC curve evaluates the Random Forest model across different classification thresholds to measure its discriminative ability. The model achieved an ROC-AUC of 0.9201, this shows that is quite effective in distinguishing customers who churn from those who do not.
+
+
+## Variable Importance
+
+```{r}
+importance(rf_model)
+
+varImpPlot(rf_model)
+```
+
+**Notes:**
+The feature importance analysis shows that customer_service_calls, total_day_minutes, total_day_charge, and total_intl_calls are the most influential predictors of customer churn. These findings indicate that customer service interactions and communication usage play a significant role in the Random Forest's classification decisions.
+
+# Model 5: Gradient Boosting Classifier
+
+## Model Construction
+
+```{r}
+gbm_model <- gbm(
+  churn ~ .,
+  data = train_processed,
+  distribution = "bernoulli",
+  n.trees = 200,
+  interaction.depth = 3,
+  shrinkage = 0.05,
+  cv.folds = 5,
+  verbose = FALSE
+)
+```
+
+**Notes:**
+Gradient Boosting was selected because it sequentially builds decision trees that correct the errors made by previous trees, often producing highly accurate predictive models.
+
+## Predictions
+
+```{r}
+gbm_prob <- predict(
+  gbm_model,
+  newdata = test_processed,
+  n.trees = 200,
+  type = "response"
+)
+
+gbm_pred <- ifelse(
+  gbm_prob > 0.5,
+  1,
+  0
+)
+```
+
+**Notes:**
+Predictions were generated on the testing dataset to evaluate the Gradient Boosting model's performance on unseen customer records.
+
+## Confusion Matrix
+
+```{r}
+confusionMatrix(
+  factor(gbm_pred),
+  factor(test_processed$churn),
+  positive = "1"
+)
+```
+
+**Notes:**
+The confusion matrix was selected because it summarizes the overall classification performance using Accuracy, Precision, Recall, and F1-score. The Gradient Boosting model achieved an Accuracy of 94.90%, Precision of 91.78%, and Recall of 70.53%, a high showing performance whilst also properly identifying the majority of churning customers.
+
+## ROC Curve
+
+```{r}
+gbm_roc <- roc(
+  test_processed$churn,
+  gbm_prob
+)
+
+plot(
+  gbm_roc,
+  main = "Gradient Boosting ROC Curve",
+  col = "purple"
+)
+
+auc(gbm_roc)
+```
+
+**Notes:**
+The ROC curve was selected because it provides a threshold-independent evaluation of the classifier's ability to separate churning and non-churning customers. The ROC-AUC of 0.9258 is the highest among the evaluated models, indicating that Gradient Boosting provides the strongest overall discrimination between the two customer groups.
+
+## Feature Importance
+
+```{r}
+summary(gbm_model)
+```
+
+**Notes:**
+The feature importance results show that total_day_minutes has the greatest relative influence on customer churn prediction, followed by customer_service_calls, total_eve_minutes, and total_intl_calls. These results indicate that customer usage behavior and service interactions are the most influential factors driving the Gradient Boosting model's predictions.
+
+
+# 4.0 Conclusion and Interpretation
+
+In this assessment five machine learning models were directly compared to predict customer churn using the Orange Telecom Churn Dataset. From the evaluation metrics, Gradient Boosting demonstrated the most effective predictive performance achieving the highest ROC-AUC while also maintaining high accuracy and strong classification performance. Its boosting approach enabled the model to capture complex relationships within the data, making it the most effective model for identifying customers who are likely to churn.  
+
+The comparison of the models also illustrates the bias-variance trade-off in machine learning. Simpler models such as Logistic Regression and Decision Trees generally have higher bias but are easier to interpret, whereas ensemble methods such as Random Forest and Gradient Boosting reduce variance and improve predictive accuracy by combining multiple decision trees. Due to this, ensemble models typically generalize better to unseen data but require greater computational resources and are less transparent.  
+
+Another point that should noted is the proper balance between interpretability and predictive performance. Logistic Regression provides easily interpretable coefficients that explain how individual variables influence customer churn, making it valuable for business analysis. In contrast to this, Random Forest and Gradient Boosting achieve superior predictive performance through more complex decision-making processes.
+
+Concluding this study, predictive churn models provide significant value to telecommunications companies by supporting data-driven decision making. Machine learning models enables organizations and companies to reduce customer attrition, improve customer satisfaction, and develop more effective business plans. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
